@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Status
+
+- **Phase 1**: Chat UI with Nanochat - Complete
+- **Phase 2**: x402 Merchant (accept $0.01 payments) - Complete
+- **Phase 3**: x402 Agent (pay Hyperbolic for escalation) - Not started
+
 ## Project Overview
 
 **NanoBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
@@ -49,8 +55,8 @@ Next.js App (this repo)
 - **Styling**: Tailwind CSS v4 with CSS variables for theming
 - **UI Components**: shadcn/ui (new-york style) with Lucide icons
 - **Animations**: Framer Motion, tw-animate-css
-- **Payments**: @x402/next (accept), @x402/fetch (pay Hyperbolic)
-- **Wallet**: wagmi + viem
+- **Payments**: x402-next (accept payments), x402-fetch (client-side 402 handling)
+- **Wallet**: wagmi + viem (Base Sepolia testnet)
 
 ### Path Aliases
 - `@/*` maps to the project root (configured in tsconfig.json)
@@ -59,10 +65,12 @@ Next.js App (this repo)
 - Hooks: `@/hooks`
 
 ### Key Files
-- `app/api/chat/route.ts` - Main x402-protected chat endpoint with routing logic
-- `lib/nanochat-client.ts` - TypeScript client for Nanochat API
-- `lib/hyperbolic-client.ts` - x402-enabled Hyperbolic client
-- `lib/treasury.ts` - Treasury wallet utilities
+- `app/api/chat/route.ts` - x402-protected chat endpoint (withX402 wrapper, $0.01/query)
+- `lib/nanochat-client.ts` - TypeScript client for Nanochat API with SSE streaming
+- `lib/wagmi-config.ts` - Wallet configuration for Base Sepolia
+- `app/providers.tsx` - WagmiProvider + QueryClientProvider wrapper
+- `components/wallet-connect.tsx` - Wallet connect/disconnect button
+- `components/chat/chat-interface.tsx` - Chat UI with wrapFetchWithPayment integration
 
 ## Styling Conventions
 - Uses OKLCH color space for CSS variables
@@ -73,9 +81,13 @@ Next.js App (this repo)
 ## Environment Variables
 ```bash
 NANOCHAT_URL=http://localhost:8000           # Nanochat inference server
-TREASURY_PRIVATE_KEY=0x...                   # Treasury wallet private key
-NEXT_PUBLIC_NETWORK=base-sepolia             # base-sepolia or base
-HYPERBOLIC_X402_URL=https://hyperbolic-x402.vercel.app/v1/chat/completions
+TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives payments
+```
+
+### Future (Phase 3+)
+```bash
+TREASURY_PRIVATE_KEY=0x...                   # For paying Hyperbolic (agent mode)
+HYPERBOLIC_X402_URL=https://...              # Hyperbolic x402 endpoint
 ```
 
 ## Project Documentation

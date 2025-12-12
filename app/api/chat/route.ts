@@ -1,8 +1,13 @@
+import { NextRequest } from 'next/server';
+import { withX402 } from 'x402-next';
 import { streamChat, type ChatMessage } from '@/lib/nanochat-client';
 
 export const runtime = 'nodejs';
 
-export async function POST(request: Request) {
+const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS as `0x${string}`;
+
+// The actual chat handler
+async function handler(request: NextRequest) {
   try {
     const body = await request.json();
     const messages: ChatMessage[] = body.messages;
@@ -55,3 +60,18 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// Wrap with x402 payment protection
+// Payment settles only after successful response (status < 400)
+export const POST = withX402(
+  handler,
+  TREASURY_ADDRESS,
+  {
+    price: "$0.01",
+    network: "base-sepolia",
+    config: {
+      description: "Chat with NanoBrain AI",
+      mimeType: "text/event-stream",
+    },
+  }
+);

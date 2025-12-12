@@ -1,6 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { useAccount } from 'wagmi';
+import { createWalletClient, custom } from 'viem';
+import { baseSepolia } from 'viem/chains';
+import { wrapFetchWithPayment } from 'x402-fetch';
 import { MessageList, type Message } from './message-list';
 import { MessageInput } from './message-input';
 import { Card } from '@/components/ui/card';
@@ -8,6 +12,25 @@ import { Card } from '@/components/ui/card';
 export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+  const { isConnected, address } = useAccount();
+
+  // Create a viem wallet client directly from the browser wallet
+  // This is needed because x402-fetch expects a viem WalletClient with public actions
+  const fetchWithPayment = useMemo(() => {
+    if (!isConnected || !address || typeof window === 'undefined' || !window.ethereum) {
+      return null;
+    }
+
+    const walletClient = createWalletClient({
+      account: address,
+      chain: baseSepolia,
+      transport: custom(window.ethereum),
+    });
+
+    // Cast to any to bypass type mismatch - the wallet client will work at runtime
+    return wrapFetchWithPayment(fetch, walletClient as any);
+  }, [isConnected, address]);
 
   const sendMessage = useCallback(async (content: string) => {
     // Add user message
@@ -18,6 +41,7 @@ export function ChatInterface() {
     };
     setMessages((prev) => [...prev, userMessage]);
     setIsLoading(true);
+    setPaymentStatus(null);
 
     // Create assistant message placeholder
     const assistantMessage: Message = {
@@ -27,17 +51,31 @@ export function ChatInterface() {
     };
 
     try {
+      // Require wallet connection
+      if (!isConnected || !fetchWithPayment) {
+        throw new Error('Please connect your wallet to chat');
+      }
+
+      setPaymentStatus('Requesting payment...');
+
       // Prepare messages for API (include history)
       const apiMessages = [...messages, userMessage].map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      const response = await fetch('/api/chat', {
+      // Use payment-wrapped fetch - it will automatically:
+      // 1. Make the request
+      // 2. If 402, extract payment details
+      // 3. Sign with wallet
+      // 4. Retry with X-PAYMENT header
+      const response = await fetchWithPayment('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: apiMessages }),
       });
+
+      setPaymentStatus(null);
 
       if (!response.ok) {
         throw new Error(`HTTP error: ${response.status}`);
@@ -105,7 +143,7 @@ export function ChatInterface() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages]);
+  }, [messages, isConnected, fetchWithPayment]);
 
   return (
     <Card className="flex flex-col h-[600px] w-full max-w-3xl mx-auto">
@@ -113,10 +151,23 @@ export function ChatInterface() {
         <h1 className="text-xl font-semibold">NanoBrain</h1>
         <p className="text-sm text-muted-foreground">
           Chat with a locally-trained AI model
+          <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+            $0.01 / query
+          </span>
         </p>
+        {!isConnected && (
+          <p className="text-sm text-amber-600 mt-2">
+            Connect your wallet to chat
+          </p>
+        )}
+        {paymentStatus && (
+          <p className="text-sm text-blue-600 mt-2">
+            {paymentStatus}
+          </p>
+        )}
       </div>
       <MessageList messages={messages} isLoading={isLoading} />
-      <MessageInput onSend={sendMessage} disabled={isLoading} />
+      <MessageInput onSend={sendMessage} disabled={isLoading || !isConnected} />
     </Card>
   );
 }

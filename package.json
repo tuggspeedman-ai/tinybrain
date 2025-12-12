@@ -11,6 +11,7 @@
   "dependencies": {
     "@radix-ui/react-scroll-area": "^1.2.10",
     "@radix-ui/react-slot": "^1.2.4",
+    "@tanstack/react-query": "^5.90.12",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "framer-motion": "^12.23.26",
@@ -18,7 +19,11 @@
     "next": "15.5.9",
     "react": "19.1.0",
     "react-dom": "19.1.0",
-    "tailwind-merge": "^3.4.0"
+    "tailwind-merge": "^3.4.0",
+    "viem": "^2.41.2",
+    "wagmi": "^3.1.0",
+    "x402-fetch": "^1.0.0",
+    "x402-next": "^1.0.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
