@@ -2,10 +2,11 @@ import { wrapFetchWithPayment } from 'x402-fetch';
 import { treasuryWallet } from './treasury';
 import type { ChatMessage, ChatStreamChunk } from './nanochat-client';
 
-const DAYDREAMS_URL = 'https://router.daydreams.systems/v1/chat/completions';
+// Correct API endpoint (api-beta, not router)
+const DAYDREAMS_URL = 'https://api-beta.daydreams.systems/v1/chat/completions';
 
-// Default model - Claude 3.5 Sonnet via Daydreams
-const DEFAULT_MODEL = 'anthropic/claude-3-5-sonnet-20241022';
+// Default model - Claude Sonnet 4 via Daydreams (claude-3-5-sonnet not available)
+const DEFAULT_MODEL = 'anthropic/claude-sonnet-4-20250514';
 
 // System message for concise responses
 const SYSTEM_MESSAGE: ChatMessage = {
@@ -13,9 +14,9 @@ const SYSTEM_MESSAGE: ChatMessage = {
   content: 'You are a helpful AI assistant. Keep your responses concise and focused.',
 };
 
-// maxValue: $0.15 in micro-USDC (covers ~$0.10 Daydreams charges)
+// maxValue: $0.02 in micro-USDC (Daydreams charges $0.01)
 /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-const fetchWithPayment = wrapFetchWithPayment(fetch, treasuryWallet as any, BigInt(150000));
+const fetchWithPayment = wrapFetchWithPayment(fetch, treasuryWallet as any, BigInt(20000));
 
 export async function* streamDaydreams(
   messages: ChatMessage[],
@@ -75,10 +76,12 @@ export async function* streamDaydreams(
         const parsed = JSON.parse(data);
         const content = parsed.choices?.[0]?.delta?.content || '';
         if (content) {
+          console.log(`[Daydreams] Chunk: ${content.slice(0, 50)}...`);
           yield { content, done: false };
         }
       } catch {
         // Skip non-JSON lines
+        console.log(`[Daydreams] Skipping non-JSON: ${data.slice(0, 50)}`);
       }
     }
   }

@@ -8,6 +8,7 @@ import {
 } from 'x402/shared';
 import { getAddress } from 'viem';
 import { SupportedEVMNetworks } from 'x402/types';
+import { facilitator as coinbaseFacilitator } from '@coinbase/x402';
 
 interface RouteConfig {
   price: string;
@@ -19,10 +20,6 @@ interface RouteConfig {
   };
 }
 
-interface FacilitatorConfig {
-  url: `${string}://${string}`;
-}
-
 /**
  * Streaming-compatible x402 wrapper.
  *
@@ -31,16 +28,19 @@ interface FacilitatorConfig {
  *
  * This is necessary because withX402 awaits settlePayment() before returning,
  * which blocks streaming responses until blockchain settlement completes.
+ *
+ * Uses Coinbase's facilitator by default (requires CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars).
  */
 export function withX402Streaming(
   handler: (request: NextRequest) => Promise<Response>,
   payTo: `0x${string}`,
-  routeConfig: RouteConfig,
-  facilitator?: FacilitatorConfig
+  routeConfig: RouteConfig
 ): (request: NextRequest) => Promise<Response> {
 
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  const { verify, settle, supported } = useFacilitator(facilitator);
+  // Use Coinbase's facilitator - reads CDP_API_KEY_ID and CDP_API_KEY_SECRET from env
+  // Type assertion needed due to minor type mismatch between @coinbase/x402 and x402/verify
+  // eslint-disable-next-line react-hooks/rules-of-hooks, @typescript-eslint/no-explicit-any
+  const { verify, settle, supported } = useFacilitator(coinbaseFacilitator as any);
   const x402Version = 1;
 
   return async function wrappedHandler(request: NextRequest): Promise<Response> {

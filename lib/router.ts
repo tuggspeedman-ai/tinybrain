@@ -14,9 +14,12 @@ export function shouldEscalate(query: string): boolean {
   return ESCALATION_KEYWORDS.some(keyword => lowerQuery.includes(keyword));
 }
 
-// Primary: Hyperbolic (working), Daydreams (endpoint not yet deployed)
-export type EscalationProvider = 'daydreams' | 'hyperbolic';
-export type ModelType = 'nanochat' | 'daydreams' | 'hyperbolic';
+// Escalation providers for advanced queries
+// Hyperbolic: Works with x402, costs ~$0.10-0.15/request (DeepSeek R1)
+// Daydreams: x402 payment validation currently broken (returns 401 even with valid signatures)
+export type EscalationProvider = 'hyperbolic' | 'daydreams';
+export type ModelType = 'nanochat' | 'hyperbolic' | 'daydreams';
 
-// Default escalation provider - Hyperbolic is working, Daydreams endpoint returns 404
+// Default escalation provider - Hyperbolic works reliably
+// (Daydreams x402 is broken - even their own SDK fails with "Invalid x402 payment")
 export const DEFAULT_ESCALATION_PROVIDER: EscalationProvider = 'hyperbolic';

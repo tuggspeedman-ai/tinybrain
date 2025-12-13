@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { createWalletClient, custom } from 'viem';
 import { base } from 'viem/chains';
@@ -15,13 +15,17 @@ export function ChatInterface() {
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const { isConnected, address } = useAccount();
 
-  // Create a viem wallet client directly from the browser wallet
-  // This is needed because x402-fetch expects a viem WalletClient with public actions
-  const fetchWithPayment = useMemo(() => {
+  // Use ref to store fetchWithPayment to avoid hydration mismatch
+  // This is set only on client side via useEffect
+  const fetchWithPaymentRef = useRef<ReturnType<typeof wrapFetchWithPayment> | null>(null);
+
+  // Set up wallet client only on client side to avoid hydration mismatch
+  useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
+    const ethereum = (window as any).ethereum;
     if (!isConnected || !address || !ethereum) {
-      return null;
+      fetchWithPaymentRef.current = null;
+      return;
     }
 
     const walletClient = createWalletClient({
@@ -32,7 +36,7 @@ export function ChatInterface() {
 
     // Cast to any to bypass type mismatch - the wallet client will work at runtime
     /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-    return wrapFetchWithPayment(fetch, walletClient as any);
+    fetchWithPaymentRef.current = wrapFetchWithPayment(fetch, walletClient as any);
   }, [isConnected, address]);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -55,7 +59,7 @@ export function ChatInterface() {
 
     try {
       // Require wallet connection
-      if (!isConnected || !fetchWithPayment) {
+      if (!isConnected || !fetchWithPaymentRef.current) {
         throw new Error('Please connect your wallet to chat');
       }
 
@@ -72,7 +76,7 @@ export function ChatInterface() {
       // 2. If 402, extract payment details
       // 3. Sign with wallet
       // 4. Retry with X-PAYMENT header
-      const response = await fetchWithPayment('/api/chat', {
+      const response = await fetchWithPaymentRef.current('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: apiMessages }),
@@ -149,7 +153,7 @@ export function ChatInterface() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isConnected, fetchWithPayment]);
+  }, [messages, isConnected]);
 
   return (
     <Card className="flex flex-col h-[600px] w-full max-w-3xl mx-auto">

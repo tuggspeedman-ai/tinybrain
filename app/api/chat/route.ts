@@ -30,11 +30,11 @@ async function handler(request: NextRequest) {
     let streamSource;
 
     if (needsEscalation) {
-      // Use Daydreams as primary, with Hyperbolic as fallback
+      // Use Hyperbolic for escalation (Daydreams x402 is currently broken)
       model = DEFAULT_ESCALATION_PROVIDER;
-      streamSource = model === 'daydreams'
-        ? streamDaydreams(messages)
-        : streamHyperbolic(messages);
+      streamSource = model === 'hyperbolic'
+        ? streamHyperbolic(messages)
+        : streamDaydreams(messages);
     } else {
       streamSource = streamChat({ messages });
     }
@@ -54,6 +54,7 @@ async function handler(request: NextRequest) {
 
             // Send content chunk in SSE format with model attribution
             const data = JSON.stringify({ content: chunk.content, model });
+            console.log(`[SSE] Sending chunk: ${chunk.content.slice(0, 30)}...`);
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
         } catch (error) {
@@ -81,11 +82,9 @@ async function handler(request: NextRequest) {
   }
 }
 
-// PayAI facilitator supports Base mainnet (no API keys needed)
-const FACILITATOR_URL = "https://facilitator.payai.network";
-
 // Wrap with streaming-compatible x402 payment protection
-// Uses fire-and-forget settlement to avoid blocking the stream
+// Uses Coinbase facilitator (requires CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars)
+// Fire-and-forget settlement to avoid blocking the stream
 export const POST = withX402Streaming(
   handler,
   TREASURY_ADDRESS,
@@ -96,6 +95,5 @@ export const POST = withX402Streaming(
       description: "Chat with NanoBrain AI",
       mimeType: "text/event-stream",
     },
-  },
-  { url: FACILITATOR_URL }
+  }
 );

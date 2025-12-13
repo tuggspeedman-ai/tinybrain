@@ -6,13 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Phase 1**: Chat UI with Nanochat - Complete
 - **Phase 2**: x402 Merchant (accept $0.01 payments) - Complete
-- **Phase 3**: x402 Agent (pay Hyperbolic for escalation) - Complete
+- **Phase 3**: x402 Agent (pay for escalation) - Complete
+  - **Hyperbolic**: Working (DeepSeek R1, ~$0.10/query)
+  - **Daydreams**: Broken (x402 returns 401 "Invalid x402 payment" - even their own SDK fails)
 
 ## Project Overview
 
 **NanoBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
 - **Merchant**: Accepts $0.01 USDC payments from users for queries
-- **Agent**: Pays Hyperbolic $0.10 for DeepSeek R1 when user triggers escalation keywords
+- **Agent**: Pays Hyperbolic ~$0.10 for DeepSeek R1 when user triggers escalation keywords
 
 The project uses a locally-trained 561M parameter model (Nanochat) that escalates complex queries to more powerful models via x402 payments.
 
@@ -46,24 +48,26 @@ Next.js App (this repo)
 ├── API Routes: /api/chat (x402 protected, $0.01/query)
 │
 ├── Nanochat Service (external): localhost:8000
-├── Hyperbolic x402 API: DeepSeek R1 for escalation ($0.10/query)
-└── PayAI Facilitator: Payment verification/settlement (Base mainnet)
+├── Hyperbolic x402 API: DeepSeek R1 for escalation (~$0.10/query) - WORKING
+├── Daydreams x402 API: Claude Sonnet 4 ($0.01/query) - BROKEN (401 errors)
+└── Coinbase CDP Facilitator: Payment verification/settlement (Base mainnet)
 ```
 
 ### Request Flow
 1. User sends message → Chat UI
 2. x402-fetch handles 402 → User signs payment ($0.01)
-3. Server routes based on keywords:
+3. Coinbase CDP facilitator verifies and settles payment
+4. Server routes based on keywords:
    - Simple queries → Nanochat (free for server)
-   - "think hard" queries → Hyperbolic DeepSeek R1 ($0.10 from treasury)
-4. Response streams back with model attribution badge
+   - "think hard" queries → Hyperbolic DeepSeek R1 (~$0.10 from treasury)
+5. Response streams back with model attribution badge
 
 ### Tech Stack
 - **Framework**: Next.js 15 with Turbopack, React 19
 - **Styling**: Tailwind CSS v4 with CSS variables for theming
 - **UI Components**: shadcn/ui (new-york style) with Lucide icons
 - **Animations**: Framer Motion, tw-animate-css
-- **Payments**: x402-next (accept payments), x402-fetch (pay Hyperbolic)
+- **Payments**: x402-fetch (client), @coinbase/x402 (facilitator), custom x402-streaming wrapper
 - **Wallet**: wagmi + viem (Base mainnet)
 
 ### Path Aliases
@@ -86,7 +90,7 @@ Next.js App (this repo)
 - `components/chat/chat-interface.tsx` - Chat UI with wrapFetchWithPayment integration
 
 ## Escalation Keywords
-Queries containing these keywords route to Hyperbolic DeepSeek R1:
+Queries containing these keywords route to Hyperbolic (DeepSeek R1):
 - "think hard", "use advanced", "be smart", "reason carefully"
 - "complex", "difficult", "challenging", "deep thinking"
 
@@ -100,17 +104,23 @@ Queries containing these keywords route to Hyperbolic DeepSeek R1:
 ```bash
 NANOCHAT_URL=http://localhost:8000           # Nanochat inference server
 TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives user payments
-TREASURY_PRIVATE_KEY=0x...                   # For paying Hyperbolic (server-side)
+TREASURY_PRIVATE_KEY=0x...                   # For paying escalation providers (server-side)
+CDP_API_KEY_ID=...                           # Coinbase Developer Platform API key ID
+CDP_API_KEY_SECRET=...                       # Coinbase Developer Platform API key secret
 ```
 
-### x402 Providers
-- **PayAI Facilitator**: `https://facilitator.payai.network` (Base mainnet, no API keys needed)
-- **Hyperbolic**: `https://hyperbolic-x402.vercel.app/v1/chat/completions` (DeepSeek R1, $0.10/query)
-- **Daydreams Router**: Not deployed yet (returns 404), kept as fallback for future
+### x402 Providers & Facilitators
+- **Coinbase CDP Facilitator**: `https://api.cdp.coinbase.com/platform/v2/x402` (Base mainnet, requires CDP API keys)
+- **Hyperbolic**: `https://hyperbolic-x402.vercel.app/v1/chat/completions` (DeepSeek R1, ~$0.10/query) - PRIMARY (working)
+- **Daydreams**: `https://api-beta.daydreams.systems/v1/chat/completions` - BROKEN (x402 returns 401 even with valid signatures)
 
 ### Known Issues
 - **Hyperbolic streaming broken**: Their `stream: true` endpoint returns 500 errors. Using `stream: false` as workaround.
-- **Daydreams Router**: API endpoint at `/v1/chat/completions` returns 404 (frontend SPA, not API). Documentation is ahead of deployment.
+- **Daydreams x402 broken**: Their x402 payment validation returns 401 "Invalid x402 payment" even with properly signed payments. This affects both the `x402-fetch` library and their own `@daydreamsai/ai-sdk-provider` SDK. Client kept in codebase for future testing.
+
+### Future Enhancements
+- **PayAI Facilitator Fallback**: Add `https://facilitator.payai.network` as fallback if CDP fails
+- **Daydreams as cheaper option**: If Daydreams fixes their x402 ($0.01/query vs Hyperbolic's $0.10), switch back
 
 ## Project Documentation
 - `project-docs/nanobrain-project-plan.md` - Original project concept and requirements
