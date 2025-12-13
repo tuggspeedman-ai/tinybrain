@@ -8,6 +8,7 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
+  model?: 'nanochat' | 'hyperbolic';
 }
 
 interface MessageListProps {
@@ -51,6 +52,11 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
               )}
             >
               <p className="whitespace-pre-wrap break-words">{message.content}</p>
+              {message.role === 'assistant' && message.model && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  {message.model === 'hyperbolic' ? '🚀 DeepSeek R1' : '🧠 Nanochat'}
+                </p>
+              )}
             </div>
           </div>
         ))}

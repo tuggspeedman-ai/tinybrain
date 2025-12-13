@@ -1,6 +1,9 @@
 import { NextRequest } from 'next/server';
-import { withX402 } from 'x402-next';
+import { withX402Streaming } from '@/lib/x402-streaming';
 import { streamChat, type ChatMessage } from '@/lib/nanochat-client';
+import { streamDaydreams } from '@/lib/daydreams-client';
+import { streamHyperbolic } from '@/lib/hyperbolic-client';
+import { shouldEscalate, DEFAULT_ESCALATION_PROVIDER, type ModelType } from '@/lib/router';
 
 export const runtime = 'nodejs';
 
@@ -19,12 +22,29 @@ async function handler(request: NextRequest) {
       );
     }
 
+    // Determine routing based on escalation keywords
+    const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || '';
+    const needsEscalation = shouldEscalate(lastUserMessage);
+
+    let model: ModelType = 'nanochat';
+    let streamSource;
+
+    if (needsEscalation) {
+      // Use Daydreams as primary, with Hyperbolic as fallback
+      model = DEFAULT_ESCALATION_PROVIDER;
+      streamSource = model === 'daydreams'
+        ? streamDaydreams(messages)
+        : streamHyperbolic(messages);
+    } else {
+      streamSource = streamChat({ messages });
+    }
+
     // Create a streaming response
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of streamChat({ messages })) {
+          for await (const chunk of streamSource) {
             if (chunk.done) {
               // Send done signal
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -32,8 +52,8 @@ async function handler(request: NextRequest) {
               return;
             }
 
-            // Send content chunk in SSE format
-            const data = JSON.stringify({ content: chunk.content });
+            // Send content chunk in SSE format with model attribution
+            const data = JSON.stringify({ content: chunk.content, model });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
         } catch (error) {
@@ -61,17 +81,21 @@ async function handler(request: NextRequest) {
   }
 }
 
-// Wrap with x402 payment protection
-// Payment settles only after successful response (status < 400)
-export const POST = withX402(
+// PayAI facilitator supports Base mainnet (no API keys needed)
+const FACILITATOR_URL = "https://facilitator.payai.network";
+
+// Wrap with streaming-compatible x402 payment protection
+// Uses fire-and-forget settlement to avoid blocking the stream
+export const POST = withX402Streaming(
   handler,
   TREASURY_ADDRESS,
   {
     price: "$0.01",
-    network: "base-sepolia",
+    network: "base",
     config: {
       description: "Chat with NanoBrain AI",
       mimeType: "text/event-stream",
     },
-  }
+  },
+  { url: FACILITATOR_URL }
 );

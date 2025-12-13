@@ -6,13 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - **Phase 1**: Chat UI with Nanochat - Complete
 - **Phase 2**: x402 Merchant (accept $0.01 payments) - Complete
-- **Phase 3**: x402 Agent (pay Hyperbolic for escalation) - Not started
+- **Phase 3**: x402 Agent (pay Hyperbolic for escalation) - Complete
 
 ## Project Overview
 
 **NanoBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
 - **Merchant**: Accepts $0.01 USDC payments from users for queries
-- **Agent**: Pays Hyperbolic for DeepSeek R1 when Nanochat is uncertain
+- **Agent**: Pays Hyperbolic $0.10 for DeepSeek R1 when user triggers escalation keywords
 
 The project uses a locally-trained 561M parameter model (Nanochat) that escalates complex queries to more powerful models via x402 payments.
 
@@ -42,21 +42,29 @@ python -m scripts.chat_web --source sft --step 700  # Starts on localhost:8000
 ### System Components
 ```
 Next.js App (this repo)
-├── Frontend: Chat UI, wallet connection, treasury dashboard
-├── API Routes: /api/chat (x402 protected), /api/treasury
+├── Frontend: Chat UI, wallet connection
+├── API Routes: /api/chat (x402 protected, $0.01/query)
 │
-├── Nanochat Service (external): localhost:8000 or Railway
-├── Hyperbolic x402 API: DeepSeek R1 for escalation
-└── Coinbase Facilitator: Payment verification/settlement
+├── Nanochat Service (external): localhost:8000
+├── Hyperbolic x402 API: DeepSeek R1 for escalation ($0.10/query)
+└── PayAI Facilitator: Payment verification/settlement (Base mainnet)
 ```
+
+### Request Flow
+1. User sends message → Chat UI
+2. x402-fetch handles 402 → User signs payment ($0.01)
+3. Server routes based on keywords:
+   - Simple queries → Nanochat (free for server)
+   - "think hard" queries → Hyperbolic DeepSeek R1 ($0.10 from treasury)
+4. Response streams back with model attribution badge
 
 ### Tech Stack
 - **Framework**: Next.js 15 with Turbopack, React 19
 - **Styling**: Tailwind CSS v4 with CSS variables for theming
 - **UI Components**: shadcn/ui (new-york style) with Lucide icons
 - **Animations**: Framer Motion, tw-animate-css
-- **Payments**: x402-next (accept payments), x402-fetch (client-side 402 handling)
-- **Wallet**: wagmi + viem (Base Sepolia testnet)
+- **Payments**: x402-next (accept payments), x402-fetch (pay Hyperbolic)
+- **Wallet**: wagmi + viem (Base mainnet)
 
 ### Path Aliases
 - `@/*` maps to the project root (configured in tsconfig.json)
@@ -65,12 +73,22 @@ Next.js App (this repo)
 - Hooks: `@/hooks`
 
 ### Key Files
-- `app/api/chat/route.ts` - x402-protected chat endpoint (withX402 wrapper, $0.01/query)
+- `app/api/chat/route.ts` - x402-protected chat endpoint with routing ($0.01/query)
 - `lib/nanochat-client.ts` - TypeScript client for Nanochat API with SSE streaming
-- `lib/wagmi-config.ts` - Wallet configuration for Base Sepolia
+- `lib/hyperbolic-client.ts` - Hyperbolic x402 client (non-streaming, $0.10/query)
+- `lib/daydreams-client.ts` - Daydreams Router client (not deployed yet, kept for future)
+- `lib/router.ts` - Keyword-based escalation routing
+- `lib/treasury.ts` - Server-side treasury wallet signer
+- `lib/x402-streaming.ts` - Custom streaming-compatible x402 wrapper (fire-and-forget settlement)
+- `lib/wagmi-config.ts` - Wallet configuration for Base mainnet
 - `app/providers.tsx` - WagmiProvider + QueryClientProvider wrapper
 - `components/wallet-connect.tsx` - Wallet connect/disconnect button
 - `components/chat/chat-interface.tsx` - Chat UI with wrapFetchWithPayment integration
+
+## Escalation Keywords
+Queries containing these keywords route to Hyperbolic DeepSeek R1:
+- "think hard", "use advanced", "be smart", "reason carefully"
+- "complex", "difficult", "challenging", "deep thinking"
 
 ## Styling Conventions
 - Uses OKLCH color space for CSS variables
@@ -81,14 +99,18 @@ Next.js App (this repo)
 ## Environment Variables
 ```bash
 NANOCHAT_URL=http://localhost:8000           # Nanochat inference server
-TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives payments
+TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives user payments
+TREASURY_PRIVATE_KEY=0x...                   # For paying Hyperbolic (server-side)
 ```
 
-### Future (Phase 3+)
-```bash
-TREASURY_PRIVATE_KEY=0x...                   # For paying Hyperbolic (agent mode)
-HYPERBOLIC_X402_URL=https://...              # Hyperbolic x402 endpoint
-```
+### x402 Providers
+- **PayAI Facilitator**: `https://facilitator.payai.network` (Base mainnet, no API keys needed)
+- **Hyperbolic**: `https://hyperbolic-x402.vercel.app/v1/chat/completions` (DeepSeek R1, $0.10/query)
+- **Daydreams Router**: Not deployed yet (returns 404), kept as fallback for future
+
+### Known Issues
+- **Hyperbolic streaming broken**: Their `stream: true` endpoint returns 500 errors. Using `stream: false` as workaround.
+- **Daydreams Router**: API endpoint at `/v1/chat/completions` returns 404 (frontend SPA, not API). Documentation is ahead of deployment.
 
 ## Project Documentation
 - `project-docs/nanobrain-project-plan.md` - Original project concept and requirements

@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo } from 'react';
 import { useAccount } from 'wagmi';
 import { createWalletClient, custom } from 'viem';
-import { baseSepolia } from 'viem/chains';
+import { base } from 'viem/chains';
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { MessageList, type Message } from './message-list';
 import { MessageInput } from './message-input';
@@ -18,17 +18,20 @@ export function ChatInterface() {
   // Create a viem wallet client directly from the browser wallet
   // This is needed because x402-fetch expects a viem WalletClient with public actions
   const fetchWithPayment = useMemo(() => {
-    if (!isConnected || !address || typeof window === 'undefined' || !window.ethereum) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const ethereum = typeof window !== 'undefined' ? (window as any).ethereum : undefined;
+    if (!isConnected || !address || !ethereum) {
       return null;
     }
 
     const walletClient = createWalletClient({
       account: address,
-      chain: baseSepolia,
-      transport: custom(window.ethereum),
+      chain: base,
+      transport: custom(ethereum),
     });
 
     // Cast to any to bypass type mismatch - the wallet client will work at runtime
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
     return wrapFetchWithPayment(fetch, walletClient as any);
   }, [isConnected, address]);
 
@@ -78,7 +81,8 @@ export function ChatInterface() {
       setPaymentStatus(null);
 
       if (!response.ok) {
-        throw new Error(`HTTP error: ${response.status}`);
+        const errorBody = await response.text();
+        throw new Error(`HTTP error: ${response.status} - ${errorBody}`);
       }
 
       // Add empty assistant message that we'll update
@@ -111,21 +115,23 @@ export function ChatInterface() {
             if (parsed.error) {
               throw new Error(parsed.error);
             }
-            if (parsed.content) {
-              // Update the assistant message with new content
+            if (parsed.content || parsed.model) {
+              // Update the assistant message with new content and model info
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMessage.id
-                    ? { ...m, content: m.content + parsed.content }
+                    ? {
+                        ...m,
+                        content: m.content + (parsed.content || ''),
+                        // Set model on first chunk that includes it
+                        model: m.model || parsed.model,
+                      }
                     : m
                 )
               );
             }
-          } catch (e) {
+          } catch {
             // Ignore parse errors for non-JSON data
-            if (data !== '[DONE]' && !(e instanceof SyntaxError)) {
-              console.error('Error parsing chunk:', e);
-            }
           }
         }
       }
