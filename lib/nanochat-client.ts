@@ -33,6 +33,17 @@ function getChatEndpoint(): string {
   return `${NANOCHAT_URL}/chat/completions`;
 }
 
+// Determine the health check endpoint URL
+// Modal creates separate URLs for each endpoint (e.g., https://user--app-health.modal.run)
+// Local URLs use /health path (e.g., http://localhost:8000/health)
+function getHealthEndpoint(): string {
+  if (NANOCHAT_URL.includes('modal.run')) {
+    // Transform: https://user--app-chat-completions.modal.run -> https://user--app-health.modal.run
+    return NANOCHAT_URL.replace('-chat-completions', '-health');
+  }
+  return `${NANOCHAT_URL}/health`;
+}
+
 /**
  * Stream chat completion from Nanochat
  * Returns an async generator that yields content chunks
@@ -146,7 +157,7 @@ export async function chat(request: ChatRequest): Promise<string> {
  */
 export async function healthCheck(): Promise<boolean> {
   try {
-    const response = await fetch(`${NANOCHAT_URL}/health`);
+    const response = await fetch(getHealthEndpoint());
     return response.ok;
   } catch {
     return false;
