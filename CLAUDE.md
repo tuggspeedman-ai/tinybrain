@@ -9,6 +9,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Phase 3**: x402 Agent (pay for escalation) - Complete
   - **Hyperbolic**: Working (DeepSeek R1, ~$0.10/query)
   - **Daydreams**: Broken (x402 returns 401 "Invalid x402 payment" - even their own SDK fails)
+- **Phase 4**: Deploy Nanochat to Modal - Complete
+  - Nanochat now runs on Modal serverless GPU (T4)
+  - URL: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
 
 ## Project Overview
 
@@ -25,7 +28,13 @@ The project uses a locally-trained 561M parameter model (Nanochat) that escalate
 - `npm run lint` - Run ESLint
 
 ### Related: Nanochat Inference Server
-The Nanochat model runs separately in `/Users/jonathanavni/Documents/Coding/nanochat`:
+**Production (Modal)**: Nanochat runs on Modal serverless GPU
+- Chat endpoint: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
+- Health endpoint: `https://tuggspeedman-ai--nanochat-health.modal.run`
+- Cold start: ~10-15s, warm: ~2-3s latency
+- T4 GPU, 5-minute idle timeout
+
+**Local development** (optional): Run locally in `/Users/jonathanavni/Documents/Coding/nanochat`:
 ```bash
 cd /Users/jonathanavni/Documents/Coding/nanochat/nanochat
 source .venv/bin/activate
@@ -47,7 +56,8 @@ Next.js App (this repo)
 ├── Frontend: Chat UI, wallet connection
 ├── API Routes: /api/chat (x402 protected, $0.01/query)
 │
-├── Nanochat Service (external): localhost:8000
+├── Nanochat Service: Modal serverless GPU (T4)
+│   └── https://tuggspeedman-ai--nanochat-chat-completions.modal.run
 ├── Hyperbolic x402 API: DeepSeek R1 for escalation (~$0.10/query) - WORKING
 ├── Daydreams x402 API: Claude Sonnet 4 ($0.01/query) - BROKEN (401 errors)
 └── Coinbase CDP Facilitator: Payment verification/settlement (Base mainnet)
@@ -102,7 +112,12 @@ Queries containing these keywords route to Hyperbolic (DeepSeek R1):
 
 ## Environment Variables
 ```bash
-NANOCHAT_URL=http://localhost:8000           # Nanochat inference server
+# Nanochat inference server
+# Use Modal (production) or local (development)
+NANOCHAT_URL=https://tuggspeedman-ai--nanochat-chat-completions.modal.run
+# NANOCHAT_URL=http://localhost:8000  # Uncomment for local development
+NANOCHAT_API_KEY=...                         # API key for Modal authentication (required for production)
+
 TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives user payments
 TREASURY_PRIVATE_KEY=0x...                   # For paying escalation providers (server-side)
 CDP_API_KEY_ID=...                           # Coinbase Developer Platform API key ID
@@ -126,3 +141,116 @@ CDP_API_KEY_SECRET=...                       # Coinbase Developer Platform API k
 - `project-docs/nanobrain-project-plan.md` - Original project concept and requirements
 - `project-docs/claude-project-plan.md` - Implementation plan with progress tracking
 - `project-docs/nanochat_project_overview.md` - Nanochat training details
+- `project-docs/nanochat-hosting-analysis.md` - Hosting decision (Modal) and cost analysis
+
+---
+
+## Nanochat Codebase Reference
+
+This section documents the nanochat project structure for deployment and integration work.
+
+### Modal Deployment
+Nanochat runs on Modal serverless GPU (T4) for production:
+- **Chat endpoint**: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
+- **Health endpoint**: `https://tuggspeedman-ai--nanochat-health.modal.run`
+- **Deploy command**: `cd /Users/jonathanavni/Documents/Coding/nanochat/nanochat && source .venv/bin/activate && modal deploy modal_app.py`
+- **Cold start**: ~10-15s, warm: ~2-3s
+- **Container idle timeout**: 5 minutes
+- **Authentication**: Requires `X-API-Key` header (stored in Modal secret `nanochat-api-key`)
+
+**Key Modal files**:
+- `modal_app.py` - Modal deployment with T4 GPU, SSE streaming, API key auth
+- Modal Volume `nanochat-checkpoints` - stores model weights and tokenizer
+- Modal Secret `nanochat-api-key` - stores `NANOCHAT_API_KEY` for authentication
+
+**URL Handling in NanoBrain** ([nanochat-client.ts:28-33](lib/nanochat-client.ts#L28-L33)):
+- Modal URLs (contain `modal.run` or `chat-completions`) are used directly
+- Local URLs get `/chat/completions` appended
+
+### Location
+- **Local path**: `/Users/jonathanavni/Documents/Coding/nanochat/nanochat`
+- **Checkpoints**: `/Users/jonathanavni/Documents/Coding/nanochat/checkpoints/` (model_000700.pt, tokenizer/)
+- **Model cache** (alternative): `~/.cache/nanochat/` (used by training scripts)
+
+### Key Files for Deployment
+
+| File | Purpose |
+|------|---------|
+| `scripts/chat_web.py` | FastAPI web server (the main entry point for serving) |
+| `nanochat/engine.py` | Inference engine with KV cache, streaming generation |
+| `nanochat/checkpoint_manager.py` | Model loading from checkpoints |
+| `nanochat/tokenizer.py` | RustBPE tokenizer (uses tiktoken for inference) |
+| `nanochat/common.py` | `get_base_dir()`, device detection utilities |
+| `nanochat/gpt.py` | GPT model architecture |
+| `pyproject.toml` | Dependencies (torch, fastapi, uvicorn, tiktoken, etc.) |
+| `rustbpe/` | Rust BPE tokenizer (built with maturin) |
+
+### Model Loading Flow
+
+```python
+# From checkpoint_manager.py:
+def load_model(source, device, phase, model_tag=None, step=None):
+    # source: "sft" | "base" | "mid" | "rl"
+    # Maps to: ~/.cache/nanochat/chatsft_checkpoints/d20/
+
+# Key paths (from get_base_dir() in common.py):
+# - Default: ~/.cache/nanochat/
+# - Override: NANOCHAT_BASE_DIR env var
+
+# Checkpoint files needed:
+# - model_000700.pt (~1.9GB) - Model weights
+# - meta_000700.json (~1KB) - Model config
+# - tokenizer/tokenizer.pkl (~846KB) - Tokenizer data
+```
+
+### Web Server API (chat_web.py)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/` | GET | Chat UI (serves ui.html) |
+| `/chat/completions` | POST | Chat API (SSE streaming) |
+| `/health` | GET | Health check with worker pool status |
+| `/stats` | GET | Worker pool statistics |
+
+**Request format** (POST /chat/completions):
+```json
+{
+  "messages": [{"role": "user", "content": "Hello"}],
+  "temperature": 0.8,
+  "max_tokens": 512,
+  "top_k": 50
+}
+```
+
+**Response**: SSE stream with `data: {"token": "...", "gpu": 0}` chunks, ending with `data: {"done": true}`
+
+### Dependencies (pyproject.toml)
+
+```
+torch>=2.8.0
+fastapi>=0.117.1
+uvicorn>=0.36.0
+tiktoken>=0.11.0
+tokenizers>=0.22.0
+datasets>=4.0.0
+```
+
+**Build system**: Uses `maturin` to build the rustbpe tokenizer
+
+### Device Support
+- **CUDA**: Full support, multi-GPU via worker pool
+- **MPS** (Apple Silicon): Works, single worker only
+- **CPU**: Works but slow (use `--device-type cpu`)
+
+### CLI Arguments (chat_web.py)
+```
+--source sft         # Model source: sft|mid|rl|base
+--step 700           # Checkpoint step (IMPORTANT: use 700, not default 21400)
+--port 8000          # Server port
+--host 0.0.0.0       # Bind address
+--device-type cuda   # Force device: cuda|cpu|mps
+--temperature 0.8    # Default sampling temperature
+--top-k 50           # Default top-k sampling
+--max-tokens 512     # Default max tokens
+--num-gpus 1         # Number of GPUs for worker pool
+```

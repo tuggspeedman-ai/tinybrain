@@ -21,6 +21,17 @@ export interface ChatStreamChunk {
 }
 
 const NANOCHAT_URL = process.env.NANOCHAT_URL || 'http://localhost:8000';
+const NANOCHAT_API_KEY = process.env.NANOCHAT_API_KEY;
+
+// Determine the chat completions endpoint URL
+// Modal URLs already include the endpoint path (e.g., https://user--app-chat-completions.modal.run)
+// Local URLs need /chat/completions appended (e.g., http://localhost:8000)
+function getChatEndpoint(): string {
+  if (NANOCHAT_URL.includes('modal.run') || NANOCHAT_URL.includes('chat-completions')) {
+    return NANOCHAT_URL;
+  }
+  return `${NANOCHAT_URL}/chat/completions`;
+}
 
 /**
  * Stream chat completion from Nanochat
@@ -29,12 +40,19 @@ const NANOCHAT_URL = process.env.NANOCHAT_URL || 'http://localhost:8000';
 export async function* streamChat(
   request: ChatRequest
 ): AsyncGenerator<ChatStreamChunk, void, unknown> {
-  const response = await fetch(`${NANOCHAT_URL}/chat/completions`, {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'Accept': 'text/event-stream',
+  };
+
+  // Add API key for Modal authentication (required for production, optional for local)
+  if (NANOCHAT_API_KEY) {
+    headers['X-API-Key'] = NANOCHAT_API_KEY;
+  }
+
+  const response = await fetch(getChatEndpoint(), {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Accept': 'text/event-stream',
-    },
+    headers,
     body: JSON.stringify({
       messages: request.messages,
       temperature: request.temperature ?? 0.8,
