@@ -12,6 +12,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Phase 4**: Deploy Nanochat to Modal - Complete
   - Nanochat now runs on Modal serverless GPU (T4)
   - URL: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
+- **Phase 5**: Deploy NanoBrain to Vercel - Complete
+  - Production URL: https://nanobrain-alpha.vercel.app/
+  - Full x402 payment flow working (user pays $0.01, treasury pays Hyperbolic ~$0.10 for escalation)
 
 ## Project Overview
 
