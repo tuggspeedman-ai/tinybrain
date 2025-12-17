@@ -1,8 +1,11 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { motion } from 'framer-motion';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { MessageContent } from './message-content';
+import { Brain, Rocket, Bot, User } from 'lucide-react';
 
 export interface Message {
   id: string;
@@ -26,50 +29,91 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
   if (messages.length === 0) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <p>Send a message to start chatting with NanoBrain</p>
+      <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
+        <div className="text-center space-y-2">
+          <Bot className="h-12 w-12 mx-auto text-muted-foreground/50" />
+          <p>Send a message to start chatting with NanoBrain</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <ScrollArea className="flex-1 p-4">
-      <div className="space-y-4 max-w-3xl mx-auto">
-        {messages.map((message) => (
-          <div
+    <ScrollArea className="flex-1 p-6">
+      <div className="space-y-6 max-w-3xl mx-auto">
+        {messages.map((message, index) => (
+          <motion.div
             key={message.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2, delay: index === messages.length - 1 ? 0.05 : 0 }}
             className={cn(
-              'flex',
+              'flex gap-3',
               message.role === 'user' ? 'justify-end' : 'justify-start'
             )}
           >
+            {/* Avatar for assistant */}
+            {message.role === 'assistant' && (
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+                <Bot className="h-4 w-4 text-white" />
+              </div>
+            )}
+
             <div
               className={cn(
-                'max-w-[80%] rounded-lg px-4 py-2',
+                'max-w-[80%] overflow-hidden',
                 message.role === 'user'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted'
+                  ? 'rounded-2xl rounded-tr-md bg-primary text-primary-foreground px-4 py-3'
+                  : 'rounded-2xl rounded-tl-md bg-muted px-4 py-3'
               )}
             >
-              <p className="whitespace-pre-wrap break-words">{message.content}</p>
+              {message.role === 'user' ? (
+                <p className="whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
+              ) : (
+                <MessageContent content={message.content} />
+              )}
               {message.role === 'assistant' && message.model && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  {message.model === 'hyperbolic' ? '🚀 DeepSeek R1' : '🧠 Nanochat'}
-                </p>
+                <div className="mt-3 pt-2 border-t border-border/50">
+                  {message.model === 'hyperbolic' ? (
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400">
+                      <Rocket size={12} />
+                      <span>DeepSeek R1</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                      <Brain size={12} />
+                      <span>Nanochat</span>
+                    </span>
+                  )}
+                </div>
               )}
             </div>
-          </div>
+
+            {/* Avatar for user */}
+            {message.role === 'user' && (
+              <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary flex items-center justify-center">
+                <User className="h-4 w-4 text-primary-foreground" />
+              </div>
+            )}
+          </motion.div>
         ))}
         {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-muted rounded-lg px-4 py-2">
-              <div className="flex space-x-1">
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.1s]" />
-                <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce [animation-delay:0.2s]" />
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex gap-3 justify-start"
+          >
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center">
+              <Bot className="h-4 w-4 text-white" />
+            </div>
+            <div className="bg-muted rounded-2xl rounded-tl-md px-4 py-3">
+              <div className="flex space-x-1.5">
+                <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce" />
+                <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:0.15s]" />
+                <div className="w-2 h-2 bg-muted-foreground/60 rounded-full animate-bounce [animation-delay:0.3s]" />
               </div>
             </div>
-          </div>
+          </motion.div>
         )}
         <div ref={bottomRef} />
       </div>

@@ -13,11 +13,17 @@ export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const { isConnected, address } = useAccount();
 
   // Use ref to store fetchWithPayment to avoid hydration mismatch
   // This is set only on client side via useEffect
   const fetchWithPaymentRef = useRef<ReturnType<typeof wrapFetchWithPayment> | null>(null);
+
+  // Prevent hydration mismatch by only rendering wallet-dependent UI after mount
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // Set up wallet client only on client side to avoid hydration mismatch
   useEffect(() => {
@@ -156,28 +162,42 @@ export function ChatInterface() {
   }, [messages, isConnected]);
 
   return (
-    <Card className="flex flex-col h-[600px] w-full max-w-3xl mx-auto">
-      <div className="border-b p-4">
-        <h1 className="text-xl font-semibold">NanoBrain</h1>
-        <p className="text-sm text-muted-foreground">
-          Chat with a locally-trained AI model
-          <span className="ml-2 text-xs bg-primary/10 text-primary px-2 py-0.5 rounded">
+    <Card className="flex flex-col h-[calc(100vh-12rem)] min-h-[400px] max-h-[800px] w-full max-w-3xl mx-auto overflow-hidden shadow-lg">
+      <div className="border-b p-4 bg-card">
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+              NanoBrain
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Chat with a locally-trained AI model
+            </p>
+          </div>
+          <span className="text-xs bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-full font-medium border border-blue-500/20">
             $0.01 / query
           </span>
-        </p>
-        {!isConnected && (
-          <p className="text-sm text-amber-600 mt-2">
+        </div>
+        {mounted && !isConnected && (
+          <div className="mt-3 flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-lg">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+            </span>
             Connect your wallet to chat
-          </p>
+          </div>
         )}
         {paymentStatus && (
-          <p className="text-sm text-blue-600 mt-2">
+          <div className="mt-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 rounded-lg">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+            </span>
             {paymentStatus}
-          </p>
+          </div>
         )}
       </div>
       <MessageList messages={messages} isLoading={isLoading} />
-      <MessageInput onSend={sendMessage} disabled={isLoading || !isConnected} />
+      <MessageInput onSend={sendMessage} disabled={isLoading || !mounted || !isConnected} />
     </Card>
   );
 }
