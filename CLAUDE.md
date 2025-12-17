@@ -15,6 +15,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Phase 5**: Deploy NanoBrain to Vercel - Complete
   - Production URL: https://nanobrain-alpha.vercel.app/
   - Full x402 payment flow working (user pays $0.01, treasury pays Hyperbolic ~$0.10 for escalation)
+- **Phase 6**: UX Polish - Complete
+  - Markdown rendering with syntax highlighting (react-markdown, remark-gfm)
+  - Collapsible `<think>` reasoning blocks for DeepSeek R1
+  - Avatar icons, Framer Motion animations, gradient send button
+  - Model badges as styled pills (Brain/Rocket icons)
+  - Auto-expanding textarea, responsive container height
 
 ## Project Overview
 
