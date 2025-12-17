@@ -1,5 +1,6 @@
 import { ChatInterface } from '@/components/chat/chat-interface';
 import { WalletConnect } from '@/components/wallet-connect';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function Home() {
   return (
@@ -9,7 +10,10 @@ export default function Home() {
           <h1 className="text-2xl font-bold">NanoBrain</h1>
           <p className="text-sm text-muted-foreground">x402-powered AI inference</p>
         </div>
-        <WalletConnect />
+        <div className="flex items-center gap-2">
+          <ThemeToggle />
+          <WalletConnect />
+        </div>
       </header>
       <div className="flex-1 flex items-center justify-center">
         <ChatInterface />

@@ -21,6 +21,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
   - Avatar icons, Framer Motion animations, gradient send button
   - Model badges as styled pills (Brain/Rocket icons)
   - Auto-expanding textarea, responsive container height
+  - Dark/light mode toggle with `next-themes` (system preference default)
 
 ## Project Overview
 
@@ -104,9 +105,14 @@ Next.js App (this repo)
 - `lib/treasury.ts` - Server-side treasury wallet signer
 - `lib/x402-streaming.ts` - Custom streaming-compatible x402 wrapper (fire-and-forget settlement)
 - `lib/wagmi-config.ts` - Wallet configuration for Base mainnet
-- `app/providers.tsx` - WagmiProvider + QueryClientProvider wrapper
+- `app/providers.tsx` - WagmiProvider + QueryClientProvider + ThemeProvider wrapper
 - `components/wallet-connect.tsx` - Wallet connect/disconnect button
+- `components/theme-toggle.tsx` - Dark/light mode toggle button
 - `components/chat/chat-interface.tsx` - Chat UI with wrapFetchWithPayment integration
+- `components/chat/message-list.tsx` - Message display with avatars and model badges
+- `components/chat/message-content.tsx` - Markdown rendering and think block parsing
+- `components/chat/think-block.tsx` - Collapsible reasoning block for DeepSeek R1
+- `components/chat/message-input.tsx` - Auto-expanding textarea with gradient send button
 
 ## Escalation Keywords
 Queries containing these keywords route to Hyperbolic (DeepSeek R1):

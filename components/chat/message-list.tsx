@@ -61,7 +61,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
 
             <div
               className={cn(
-                'max-w-[80%] overflow-hidden',
+                'max-w-[80%] overflow-x-hidden',
                 message.role === 'user'
                   ? 'rounded-2xl rounded-tr-md bg-primary text-primary-foreground px-4 py-3'
                   : 'rounded-2xl rounded-tl-md bg-muted px-4 py-3'

@@ -34,7 +34,7 @@ export function ThinkBlock({ content }: ThinkBlockProps) {
             transition={{ duration: 0.2 }}
             className="overflow-hidden"
           >
-            <div className="mt-2 pl-4 border-l-2 border-muted text-sm text-muted-foreground whitespace-pre-wrap">
+            <div className="mt-2 pl-4 border-l-2 border-muted text-sm text-muted-foreground whitespace-pre-wrap max-h-[300px] overflow-y-auto">
               {content}
             </div>
           </motion.div>
