@@ -1,6 +1,6 @@
 import { wrapFetchWithPayment } from 'x402-fetch';
 import { treasuryWallet } from './treasury';
-import type { ChatMessage, ChatStreamChunk } from './nanochat-client';
+import type { ChatMessage, ChatStreamChunk } from './tinychat-client';
 
 // Correct API endpoint (api-beta, not router)
 const DAYDREAMS_URL = 'https://api-beta.daydreams.systems/v1/chat/completions';

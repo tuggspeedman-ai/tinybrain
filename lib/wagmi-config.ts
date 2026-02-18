@@ -7,7 +7,7 @@ export const wagmiConfig = createConfig({
   chains: [base],
   connectors: [
     injected(),
-    coinbaseWallet({ appName: "NanoBrain" }),
+    coinbaseWallet({ appName: "TinyBrain" }),
   ],
   transports: {
     [base.id]: http(),

@@ -2,34 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Status
-
-- **Phase 1**: Chat UI with Nanochat - Complete
-- **Phase 2**: x402 Merchant (accept $0.01 payments) - Complete
-- **Phase 3**: x402 Agent (pay for escalation) - Complete
-  - **Hyperbolic**: Working (DeepSeek R1, ~$0.10/query)
-  - **Daydreams**: Broken (x402 returns 401 "Invalid x402 payment" - even their own SDK fails)
-- **Phase 4**: Deploy Nanochat to Modal - Complete
-  - Nanochat now runs on Modal serverless GPU (T4)
-  - URL: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
-- **Phase 5**: Deploy NanoBrain to Vercel - Complete
-  - Production URL: https://nanobrain-alpha.vercel.app/
-  - Full x402 payment flow working (user pays $0.01, treasury pays Hyperbolic ~$0.10 for escalation)
-- **Phase 6**: UX Polish - Complete
-  - Markdown rendering with syntax highlighting (react-markdown, remark-gfm)
-  - Collapsible `<think>` reasoning blocks for DeepSeek R1
-  - Avatar icons, Framer Motion animations, gradient send button
-  - Model badges as styled pills (Brain/Rocket icons)
-  - Auto-expanding textarea, responsive container height
-  - Dark/light mode toggle with `next-themes` (system preference default)
-
 ## Project Overview
 
-**NanoBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
+**TinyBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
 - **Merchant**: Accepts $0.01 USDC payments from users for queries
 - **Agent**: Pays Hyperbolic ~$0.10 for DeepSeek R1 when user triggers escalation keywords
 
-The project uses a locally-trained 561M parameter model (Nanochat) that escalates complex queries to more powerful models via x402 payments.
+The project uses a locally-trained 561M parameter model (TinyChat) that escalates complex queries to more powerful models via x402 payments.
 
 ## Commands
 
@@ -37,10 +16,10 @@ The project uses a locally-trained 561M parameter model (Nanochat) that escalate
 - `npm run build` - Build for production with Turbopack
 - `npm run lint` - Run ESLint
 
-### Related: Nanochat Inference Server
-**Production (Modal)**: Nanochat runs on Modal serverless GPU
-- Chat endpoint: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
-- Health endpoint: `https://tuggspeedman-ai--nanochat-health.modal.run`
+### Related: TinyChat Inference Server
+**Production (Modal)**: TinyChat runs on Modal serverless GPU
+- Chat endpoint: `https://tuggspeedman-ai--tinychat-chat-completions.modal.run`
+- Health endpoint: `https://tuggspeedman-ai--tinychat-health.modal.run`
 - Cold start: ~10-15s, warm: ~2-3s latency
 - T4 GPU, 5-minute idle timeout
 
@@ -48,15 +27,15 @@ The project uses a locally-trained 561M parameter model (Nanochat) that escalate
 ```bash
 cd /Users/jonathanavni/Documents/Coding/nanochat/nanochat
 source .venv/bin/activate
-python -m scripts.chat_web --source sft --step 700  # Starts on localhost:8000
+python -m scripts.chat_web --source sft --step 809  # Starts on localhost:8000
 ```
 
-**Important**: Use `--step 700` to load the correct SFT checkpoint. The default (step 21400) is overtrained.
+**Important**: Use `--step 809` to load the correct Phase 2 SFT checkpoint (TinyChat identity).
 
 **Model info** (d20 architecture, 561M params):
-- Checkpoint: `~/.cache/nanochat/chatsft_checkpoints/d20/model_000700.pt`
-- MMLU accuracy: 36%, ARC-Easy: 47%
-- Has SFT personality (knows it's nanochat) but limited factual knowledge
+- Checkpoint: `~/.cache/nanochat/chatsft_checkpoints/d20/model_000809.pt`
+- MMLU accuracy: 35.2%, ARC-Easy: 46.8%
+- Has SFT personality (knows it's TinyChat, built by Jonathan Avni) but limited factual knowledge
 
 ## Architecture
 
@@ -66,8 +45,8 @@ Next.js App (this repo)
 ├── Frontend: Chat UI, wallet connection
 ├── API Routes: /api/chat (x402 protected, $0.01/query)
 │
-├── Nanochat Service: Modal serverless GPU (T4)
-│   └── https://tuggspeedman-ai--nanochat-chat-completions.modal.run
+├── TinyChat Service: Modal serverless GPU (T4)
+│   └── https://tuggspeedman-ai--tinychat-chat-completions.modal.run
 ├── Hyperbolic x402 API: DeepSeek R1 for escalation (~$0.10/query) - WORKING
 ├── Daydreams x402 API: Claude Sonnet 4 ($0.01/query) - BROKEN (401 errors)
 └── Coinbase CDP Facilitator: Payment verification/settlement (Base mainnet)
@@ -78,7 +57,7 @@ Next.js App (this repo)
 2. x402-fetch handles 402 → User signs payment ($0.01)
 3. Coinbase CDP facilitator verifies and settles payment
 4. Server routes based on keywords:
-   - Simple queries → Nanochat (free for server)
+   - Simple queries → TinyChat (free for server)
    - "think hard" queries → Hyperbolic DeepSeek R1 (~$0.10 from treasury)
 5. Response streams back with model attribution badge
 
@@ -98,7 +77,7 @@ Next.js App (this repo)
 
 ### Key Files
 - `app/api/chat/route.ts` - x402-protected chat endpoint with routing ($0.01/query)
-- `lib/nanochat-client.ts` - TypeScript client for Nanochat API with SSE streaming
+- `lib/tinychat-client.ts` - TypeScript client for TinyChat API with SSE streaming
 - `lib/hyperbolic-client.ts` - Hyperbolic x402 client (non-streaming, $0.10/query)
 - `lib/daydreams-client.ts` - Daydreams Router client (not deployed yet, kept for future)
 - `lib/router.ts` - Keyword-based escalation routing
@@ -127,11 +106,11 @@ Queries containing these keywords route to Hyperbolic (DeepSeek R1):
 
 ## Environment Variables
 ```bash
-# Nanochat inference server
+# TinyChat inference server
 # Use Modal (production) or local (development)
-NANOCHAT_URL=https://tuggspeedman-ai--nanochat-chat-completions.modal.run
-# NANOCHAT_URL=http://localhost:8000  # Uncomment for local development
-NANOCHAT_API_KEY=...                         # API key for Modal authentication (required for production)
+TINYCHAT_URL=https://tuggspeedman-ai--tinychat-chat-completions.modal.run
+# TINYCHAT_URL=http://localhost:8000  # Uncomment for local development
+TINYCHAT_API_KEY=...                         # API key for Modal authentication (required for production)
 
 TREASURY_ADDRESS=0xcAF6f4AF9C1DF98530E74A3eCbb88dF077CBBC87  # Receives user payments
 TREASURY_PRIVATE_KEY=0x...                   # For paying escalation providers (server-side)
@@ -152,40 +131,41 @@ CDP_API_KEY_SECRET=...                       # Coinbase Developer Platform API k
 - **PayAI Facilitator Fallback**: Add `https://facilitator.payai.network` as fallback if CDP fails
 - **Daydreams as cheaper option**: If Daydreams fixes their x402 ($0.01/query vs Hyperbolic's $0.10), switch back
 
-## Project Documentation
-- `project-docs/nanobrain-project-plan.md` - Original project concept and requirements
-- `project-docs/claude-project-plan.md` - Implementation plan with progress tracking
-- `project-docs/nanochat_project_overview.md` - Nanochat training details
-- `project-docs/nanochat-hosting-analysis.md` - Hosting decision (Modal) and cost analysis
+### Upcoming Work
+See [tinybrain-updated-project-plan.md](tinybrain-updated-project-plan.md) for the v2 upgrade plan:
+- x402 v2 migration (`@x402/*` packages, `PAYMENT-SIGNATURE` headers, CAIP-2 networks)
+- BlockRun.ai replacing Hyperbolic as escalation provider (~$0.001/query vs $0.10)
+- Perplexity-based escalation routing (TinyChat measures its own uncertainty)
+- "Bar Tab" session-based payment mode (deposit, chat freely, settle at end)
 
 ---
 
-## Nanochat Codebase Reference
+## TinyChat Codebase Reference
 
-This section documents the nanochat project structure for deployment and integration work.
+This section documents the TinyChat project structure for deployment and integration work.
 
 ### Modal Deployment
-Nanochat runs on Modal serverless GPU (T4) for production:
-- **Chat endpoint**: `https://tuggspeedman-ai--nanochat-chat-completions.modal.run`
-- **Health endpoint**: `https://tuggspeedman-ai--nanochat-health.modal.run`
+TinyChat runs on Modal serverless GPU (T4) for production:
+- **Chat endpoint**: `https://tuggspeedman-ai--tinychat-chat-completions.modal.run`
+- **Health endpoint**: `https://tuggspeedman-ai--tinychat-health.modal.run`
 - **Deploy command**: `cd /Users/jonathanavni/Documents/Coding/nanochat/nanochat && source .venv/bin/activate && modal deploy modal_app.py`
 - **Cold start**: ~10-15s, warm: ~2-3s
 - **Container idle timeout**: 5 minutes
-- **Authentication**: Requires `X-API-Key` header (stored in Modal secret `nanochat-api-key`)
+- **Authentication**: Requires `X-API-Key` header (stored in Modal secret `tinychat-api-key`)
 
 **Key Modal files**:
 - `modal_app.py` - Modal deployment with T4 GPU, SSE streaming, API key auth
-- Modal Volume `nanochat-checkpoints` - stores model weights and tokenizer
-- Modal Secret `nanochat-api-key` - stores `NANOCHAT_API_KEY` for authentication
+- Modal Volume `tinychat-checkpoints` - stores model weights and tokenizer
+- Modal Secret `tinychat-api-key` - stores `TINYCHAT_API_KEY` for authentication
 
-**URL Handling in NanoBrain** ([nanochat-client.ts:28-33](lib/nanochat-client.ts#L28-L33)):
+**URL Handling in TinyBrain** ([tinychat-client.ts:30-34](lib/tinychat-client.ts#L30-L34)):
 - Modal URLs (contain `modal.run` or `chat-completions`) are used directly
 - Local URLs get `/chat/completions` appended
 
 ### Location
 - **Local path**: `/Users/jonathanavni/Documents/Coding/nanochat/nanochat`
-- **Checkpoints**: `/Users/jonathanavni/Documents/Coding/nanochat/checkpoints/` (model_000700.pt, tokenizer/)
-- **Model cache** (alternative): `~/.cache/nanochat/` (used by training scripts)
+- **Checkpoints**: `~/.cache/nanochat/chatsft_checkpoints/d20/model_000809.pt`
+- **Model cache**: `~/.cache/nanochat/` (used by training scripts)
 
 ### Key Files for Deployment
 
@@ -203,18 +183,25 @@ Nanochat runs on Modal serverless GPU (T4) for production:
 ### Model Loading Flow
 
 ```python
-# From checkpoint_manager.py:
-def load_model(source, device, phase, model_tag=None, step=None):
-    # source: "sft" | "base" | "mid" | "rl"
-    # Maps to: ~/.cache/nanochat/chatsft_checkpoints/d20/
+# From modal_app.py (production):
+from nanochat.checkpoint_manager import build_model
+model, tokenizer, meta_data = build_model(
+    checkpoint_dir=checkpoint_dir,
+    step=809,  # Phase 2 SFT checkpoint (TinyChat identity)
+    device=device,
+    phase="eval"
+)
+
+# From chat_web.py (local dev):
+# python -m scripts.chat_web --source sft --step 809
 
 # Key paths (from get_base_dir() in common.py):
 # - Default: ~/.cache/nanochat/
 # - Override: NANOCHAT_BASE_DIR env var
 
 # Checkpoint files needed:
-# - model_000700.pt (~1.9GB) - Model weights
-# - meta_000700.json (~1KB) - Model config
+# - model_000809.pt (~1.9GB) - Model weights
+# - meta_000809.json (~1KB) - Model config
 # - tokenizer/tokenizer.pkl (~846KB) - Tokenizer data
 ```
 
@@ -260,7 +247,7 @@ datasets>=4.0.0
 ### CLI Arguments (chat_web.py)
 ```
 --source sft         # Model source: sft|mid|rl|base
---step 700           # Checkpoint step (IMPORTANT: use 700, not default 21400)
+--step 809           # Checkpoint step (Phase 2 SFT with TinyChat identity)
 --port 8000          # Server port
 --host 0.0.0.0       # Bind address
 --device-type cuda   # Force device: cuda|cpu|mps

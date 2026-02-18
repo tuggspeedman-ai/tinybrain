@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NanoBrain",
+  title: "TinyBrain",
   description: "AI inference with x402 payments",
 };
 

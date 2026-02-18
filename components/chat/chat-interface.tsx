@@ -126,7 +126,7 @@ export function ChatInterface() {
               throw new Error(parsed.error);
             }
             if (parsed.content || parsed.model) {
-              // Update the assistant message with new content and model info
+              // Update the assistant message with new content, model, and escalation info
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMessage.id
@@ -135,6 +135,8 @@ export function ChatInterface() {
                         content: m.content + (parsed.content || ''),
                         // Set model on first chunk that includes it
                         model: m.model || parsed.model,
+                        escalationReason: m.escalationReason || parsed.escalationReason,
+                        perplexity: m.perplexity ?? parsed.perplexity,
                       }
                     : m
                 )
@@ -167,7 +169,7 @@ export function ChatInterface() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              NanoBrain
+              TinyBrain
             </h1>
             <p className="text-sm text-muted-foreground">
               Chat with a locally-trained AI model

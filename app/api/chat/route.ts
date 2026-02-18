@@ -1,9 +1,16 @@
 import { NextRequest } from 'next/server';
 import { withX402Streaming } from '@/lib/x402-streaming';
-import { streamChat, type ChatMessage } from '@/lib/nanochat-client';
+import { streamChat, type ChatMessage } from '@/lib/tinychat-client';
 import { streamDaydreams } from '@/lib/daydreams-client';
-import { streamHyperbolic } from '@/lib/hyperbolic-client';
-import { shouldEscalate, DEFAULT_ESCALATION_PROVIDER, type ModelType } from '@/lib/router';
+import { streamBlockRun } from '@/lib/blockrun-client';
+import {
+  shouldEscalateByKeyword,
+  shouldEscalateByPerplexity,
+  PERPLEXITY_THRESHOLD,
+  DEFAULT_ESCALATION_PROVIDER,
+  type ModelType,
+  type EscalationReason,
+} from '@/lib/router';
 
 export const runtime = 'nodejs';
 
@@ -22,41 +29,89 @@ async function handler(request: NextRequest) {
       );
     }
 
-    // Determine routing based on escalation keywords
+    // Phase 1: Check keyword escalation (checked first, acts as override)
     const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || '';
-    const needsEscalation = shouldEscalate(lastUserMessage);
+    const keywordEscalation = shouldEscalateByKeyword(lastUserMessage);
 
-    let model: ModelType = 'nanochat';
-    let streamSource;
-
-    if (needsEscalation) {
-      // Use Hyperbolic for escalation (Daydreams x402 is currently broken)
-      model = DEFAULT_ESCALATION_PROVIDER;
-      streamSource = model === 'hyperbolic'
-        ? streamHyperbolic(messages)
+    if (keywordEscalation) {
+      // Keyword override: skip TinyChat entirely, go straight to BlockRun
+      console.log(`[Router] Keyword escalation triggered for: "${lastUserMessage.slice(0, 50)}..."`);
+      const model: ModelType = DEFAULT_ESCALATION_PROVIDER;
+      const escalationReason: EscalationReason = 'keyword';
+      const streamSource = model === 'blockrun'
+        ? streamBlockRun(messages)
         : streamDaydreams(messages);
-    } else {
-      streamSource = streamChat({ messages });
+      return createStreamResponse(streamSource, model, escalationReason);
     }
 
-    // Create a streaming response
+    // Phase 2: Two-phase perplexity routing
+    // Start TinyChat stream, read perplexity from first event, decide whether to continue or escalate
+    console.log(`[Router] Starting TinyChat stream for perplexity check...`);
+    const tinychatStream = streamChat({ messages });
+
     const encoder = new TextEncoder();
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          for await (const chunk of streamSource) {
+          let model: ModelType = 'tinychat';
+          let escalationReason: EscalationReason = 'none';
+          let perplexityValue: number | undefined;
+          let escalated = false;
+
+          for await (const chunk of tinychatStream) {
+            // Check for perplexity event (first SSE event from TinyChat)
+            if (chunk.perplexity !== undefined) {
+              perplexityValue = chunk.perplexity;
+              console.log(`[Router] TinyChat perplexity: ${perplexityValue} (threshold: ${PERPLEXITY_THRESHOLD})`);
+
+              if (shouldEscalateByPerplexity(perplexityValue)) {
+                // Perplexity too high — abort TinyChat, switch to BlockRun
+                console.log(`[Router] Perplexity escalation: ${perplexityValue} > ${PERPLEXITY_THRESHOLD}`);
+                model = DEFAULT_ESCALATION_PROVIDER;
+                escalationReason = 'perplexity';
+                escalated = true;
+                break; // Exit TinyChat stream loop
+              }
+              // Perplexity OK — continue streaming from TinyChat
+              continue;
+            }
+
             if (chunk.done) {
-              // Send done signal
+              const doneData = JSON.stringify({ content: '', model, escalationReason, perplexity: perplexityValue });
+              controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
               controller.close();
               return;
             }
 
-            // Send content chunk in SSE format with model attribution
-            const data = JSON.stringify({ content: chunk.content, model });
-            console.log(`[SSE] Sending chunk: ${chunk.content.slice(0, 30)}...`);
+            // Forward TinyChat content to client
+            const data = JSON.stringify({ content: chunk.content, model, escalationReason, perplexity: perplexityValue });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
+
+          if (escalated) {
+            // Stream from BlockRun instead
+            const blockRunStream = model === 'blockrun'
+              ? streamBlockRun(messages)
+              : streamDaydreams(messages);
+
+            for await (const chunk of blockRunStream) {
+              if (chunk.done) {
+                const doneData = JSON.stringify({ content: '', model, escalationReason, perplexity: perplexityValue });
+                controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
+                controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+                controller.close();
+                return;
+              }
+
+              const data = JSON.stringify({ content: chunk.content, model, escalationReason, perplexity: perplexityValue });
+              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+            }
+          }
+
+          // Fallback close if stream ended without done signal
+          controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+          controller.close();
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : 'Unknown error';
           const errorData = JSON.stringify({ error: errorMessage });
@@ -82,6 +137,44 @@ async function handler(request: NextRequest) {
   }
 }
 
+// Helper: create a streaming response from a generator (used for keyword escalation path)
+function createStreamResponse(
+  streamSource: AsyncGenerator<{ content: string; done: boolean }>,
+  model: ModelType,
+  escalationReason: EscalationReason,
+) {
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of streamSource) {
+          if (chunk.done) {
+            controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
+            controller.close();
+            return;
+          }
+
+          const data = JSON.stringify({ content: chunk.content, model, escalationReason });
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+        const errorData = JSON.stringify({ error: errorMessage });
+        controller.enqueue(encoder.encode(`data: ${errorData}\n\n`));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+    },
+  });
+}
+
 // Wrap with streaming-compatible x402 payment protection
 // Uses Coinbase facilitator (requires CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars)
 // Fire-and-forget settlement to avoid blocking the stream
@@ -92,7 +185,7 @@ export const POST = withX402Streaming(
     price: "$0.01",
     network: "base",
     config: {
-      description: "Chat with NanoBrain AI",
+      description: "Chat with TinyBrain AI",
       mimeType: "text/event-stream",
     },
   }

@@ -1,5 +1,5 @@
 /**
- * TypeScript client for the Nanochat inference API
+ * TypeScript client for the TinyChat inference API
  * Handles SSE streaming responses from the FastAPI server
  */
 
@@ -18,34 +18,35 @@ export interface ChatRequest {
 export interface ChatStreamChunk {
   content: string;
   done: boolean;
+  perplexity?: number;
 }
 
-const NANOCHAT_URL = process.env.NANOCHAT_URL || 'http://localhost:8000';
-const NANOCHAT_API_KEY = process.env.NANOCHAT_API_KEY;
+const TINYCHAT_URL = process.env.TINYCHAT_URL || 'http://localhost:8000';
+const TINYCHAT_API_KEY = process.env.TINYCHAT_API_KEY;
 
 // Determine the chat completions endpoint URL
 // Modal URLs already include the endpoint path (e.g., https://user--app-chat-completions.modal.run)
 // Local URLs need /chat/completions appended (e.g., http://localhost:8000)
 function getChatEndpoint(): string {
-  if (NANOCHAT_URL.includes('modal.run') || NANOCHAT_URL.includes('chat-completions')) {
-    return NANOCHAT_URL;
+  if (TINYCHAT_URL.includes('modal.run') || TINYCHAT_URL.includes('chat-completions')) {
+    return TINYCHAT_URL;
   }
-  return `${NANOCHAT_URL}/chat/completions`;
+  return `${TINYCHAT_URL}/chat/completions`;
 }
 
 // Determine the health check endpoint URL
 // Modal creates separate URLs for each endpoint (e.g., https://user--app-health.modal.run)
 // Local URLs use /health path (e.g., http://localhost:8000/health)
 function getHealthEndpoint(): string {
-  if (NANOCHAT_URL.includes('modal.run')) {
+  if (TINYCHAT_URL.includes('modal.run')) {
     // Transform: https://user--app-chat-completions.modal.run -> https://user--app-health.modal.run
-    return NANOCHAT_URL.replace('-chat-completions', '-health');
+    return TINYCHAT_URL.replace('-chat-completions', '-health');
   }
-  return `${NANOCHAT_URL}/health`;
+  return `${TINYCHAT_URL}/health`;
 }
 
 /**
- * Stream chat completion from Nanochat
+ * Stream chat completion from TinyChat
  * Returns an async generator that yields content chunks
  */
 export async function* streamChat(
@@ -57,8 +58,8 @@ export async function* streamChat(
   };
 
   // Add API key for Modal authentication (required for production, optional for local)
-  if (NANOCHAT_API_KEY) {
-    headers['X-API-Key'] = NANOCHAT_API_KEY;
+  if (TINYCHAT_API_KEY) {
+    headers['X-API-Key'] = TINYCHAT_API_KEY;
   }
 
   const response = await fetch(getChatEndpoint(), {
@@ -73,7 +74,7 @@ export async function* streamChat(
   });
 
   if (!response.ok) {
-    throw new Error(`Nanochat API error: ${response.status} ${response.statusText}`);
+    throw new Error(`TinyChat API error: ${response.status} ${response.statusText}`);
   }
 
   const reader = response.body?.getReader();
@@ -114,7 +115,12 @@ export async function* streamChat(
 
           try {
             const parsed = JSON.parse(data);
-            // Nanochat sends chunks with {"token": "..."} format
+            // TinyChat emits perplexity as first SSE event: {"perplexity": 142.7}
+            if ('perplexity' in parsed) {
+              yield { content: '', done: false, perplexity: parsed.perplexity };
+              continue;
+            }
+            // TinyChat sends chunks with {"token": "..."} format
             const content = parsed.token ||
                            parsed.choices?.[0]?.delta?.content ||
                            parsed.choices?.[0]?.text ||
@@ -153,7 +159,7 @@ export async function chat(request: ChatRequest): Promise<string> {
 }
 
 /**
- * Health check for Nanochat server
+ * Health check for TinyChat server
  */
 export async function healthCheck(): Promise<boolean> {
   try {

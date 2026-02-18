@@ -11,7 +11,9 @@ export interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  model?: 'nanochat' | 'hyperbolic';
+  model?: 'tinychat' | 'blockrun';
+  escalationReason?: 'keyword' | 'perplexity' | 'none';
+  perplexity?: number;
 }
 
 interface MessageListProps {
@@ -32,7 +34,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
       <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
         <div className="text-center space-y-2">
           <Bot className="h-12 w-12 mx-auto text-muted-foreground/50" />
-          <p>Send a message to start chatting with NanoBrain</p>
+          <p>Send a message to start chatting with TinyBrain</p>
         </div>
       </div>
     );
@@ -73,16 +75,26 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                 <MessageContent content={message.content} />
               )}
               {message.role === 'assistant' && message.model && (
-                <div className="mt-3 pt-2 border-t border-border/50">
-                  {message.model === 'hyperbolic' ? (
+                <div className="mt-3 pt-2 border-t border-border/50 flex items-center gap-2 flex-wrap">
+                  {message.model === 'blockrun' ? (
                     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400">
                       <Rocket size={12} />
-                      <span>DeepSeek R1</span>
+                      <span>
+                        DeepSeek R1 via BlockRun
+                        {message.escalationReason === 'perplexity' && message.perplexity != null
+                          ? ` (perplexity: ${message.perplexity})`
+                          : message.escalationReason === 'keyword'
+                            ? ' (requested)'
+                            : ''}
+                      </span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
                       <Brain size={12} />
-                      <span>Nanochat</span>
+                      <span>
+                        TinyChat
+                        {message.perplexity != null ? ` (perplexity: ${message.perplexity})` : ''}
+                      </span>
                     </span>
                   )}
                 </div>

@@ -1,5 +1,5 @@
 {
-  "name": "nanobrain",
+  "name": "tinybrain",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@blockrun/llm": "^0.3.0",
     "@coinbase/x402": "^2.0.0",
     "@daydreamsai/ai-sdk-provider": "^0.1.5",
     "@radix-ui/react-scroll-area": "^1.2.10",
