@@ -151,15 +151,20 @@ export function ChatInterface() {
     const secs = Math.floor((elapsed % 60000) / 1000);
     const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
-    // Count breakdown from messages
+    // Count breakdown from messages (source of truth for costs)
     const breakdown = new Map<string, { count: number; totalCost: number }>();
+    let computedTotal = 0;
     for (const m of messages) {
       if (m.role !== 'assistant' || !m.model || m.queryCost == null) continue;
       const existing = breakdown.get(m.model) ?? { count: 0, totalCost: 0 };
       existing.count += 1;
       existing.totalCost += m.queryCost;
       breakdown.set(m.model, existing);
+      computedTotal += m.queryCost;
     }
+
+    // Use computed total from messages (reliable) over session state (may be stale)
+    const totalCostCents = computedTotal || session.totalCostCents;
 
     setReceiptData({
       duration,
@@ -168,7 +173,7 @@ export function ChatInterface() {
         count: data.count,
         totalCost: data.totalCost,
       })),
-      totalCostCents: session.totalCostCents,
+      totalCostCents,
       depositCents: session.depositCents,
     });
 
@@ -177,17 +182,19 @@ export function ChatInterface() {
   }, [session, messages]);
 
   const handlePay = useCallback(async () => {
-    if (!session || !walletClientRef.current || !address) return;
+    if (!session || !walletClientRef.current || !address || !receiptData) return;
     setIsPaying(true);
 
     try {
-      const isZeroCost = session.totalCostCents === 0;
+      // Use receiptData.totalCostCents (computed from messages, always reliable)
+      const totalCents = receiptData.totalCostCents;
+      const isZeroCost = totalCents === 0;
       let settlementAuth = null;
       let settlementSig = null;
 
       if (!isZeroCost) {
         // Sign settlement for exact amount used
-        const auth = buildAuthorization(address as `0x${string}`, session.totalCostCents);
+        const auth = buildAuthorization(address as `0x${string}`, totalCents);
         const sig = await signAuthorization(walletClientRef.current, auth);
         settlementAuth = auth;
         settlementSig = sig;
@@ -217,7 +224,7 @@ export function ChatInterface() {
       setPaymentStatus(`Settlement error: ${err instanceof Error ? err.message : 'Unknown error'}`);
       setTimeout(() => setPaymentStatus(null), 4000);
     }
-  }, [session, address]);
+  }, [session, address, receiptData]);
 
   const handleReceiptClose = useCallback(() => {
     setShowReceipt(false);
@@ -333,13 +340,16 @@ export function ChatInterface() {
             }
 
             // Update session usage from SSE metadata
-            if (parsed.sessionUsage && session) {
+            if (parsed.sessionUsage != null) {
+              const usage = typeof parsed.sessionUsage === 'object'
+                ? parsed.sessionUsage
+                : { queryCount: undefined, totalCostCents: parsed.sessionUsage };
               setSession((prev) =>
                 prev
                   ? {
                       ...prev,
-                      queryCount: parsed.sessionUsage.queryCount,
-                      totalCostCents: parsed.sessionUsage.totalCostCents,
+                      queryCount: usage.queryCount ?? prev.queryCount,
+                      totalCostCents: usage.totalCostCents ?? prev.totalCostCents,
                     }
                   : prev
               );

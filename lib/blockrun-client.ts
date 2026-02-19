@@ -27,9 +27,18 @@ export async function* streamBlockRun(
     temperature: 0.8,
   });
 
-  const content = result.choices?.[0]?.message?.content || '';
+  const message = result.choices?.[0]?.message;
+  const content = message?.content || '';
+  // DeepSeek R1 returns reasoning in a separate field (not typed by BlockRun SDK)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const reasoningContent = (message as any)?.reasoning_content as string | undefined;
 
-  console.log(`[BlockRun] Got response (${content.length} chars), usage: ${JSON.stringify(result.usage)}`);
+  console.log(`[BlockRun] Got response (${content.length} chars, reasoning: ${reasoningContent?.length ?? 0} chars), usage: ${JSON.stringify(result.usage)}`);
+
+  // Wrap reasoning in <think> tags so the frontend parser can display it
+  if (reasoningContent) {
+    yield { content: `<think>${reasoningContent}</think>`, done: false };
+  }
 
   if (content) {
     yield { content, done: false };

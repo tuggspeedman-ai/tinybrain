@@ -16,6 +16,13 @@ import { SESSION_PRICING } from '@/lib/session-pricing';
 
 export const runtime = 'nodejs';
 
+/** Build sessionUsage object for SSE metadata */
+function getSessionUsage(token: string) {
+  const s = sessionStore.getSessionByToken(token);
+  if (!s) return undefined;
+  return { queryCount: s.usage.length, totalCostCents: s.totalCostCents };
+}
+
 const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS as `0x${string}`;
 
 // The actual chat handler
@@ -58,7 +65,7 @@ async function handler(request: NextRequest) {
       const streamSource = model === 'blockrun'
         ? streamBlockRun(messages)
         : streamDaydreams(messages);
-      return createStreamResponse(streamSource, model, escalationReason, undefined, session);
+      return createStreamResponse(streamSource, model, escalationReason, undefined, sessionToken ?? undefined);
     }
 
     // Phase 2: Two-phase perplexity routing
@@ -117,12 +124,9 @@ async function handler(request: NextRequest) {
             }
 
             if (chunk.done) {
-              const sessionUsage = capturedSessionToken
-                ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
-                : undefined;
               const doneData = JSON.stringify({
                 content: '', model, escalationReason, perplexity: perplexityValue,
-                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
               });
               controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -131,12 +135,9 @@ async function handler(request: NextRequest) {
             }
 
             // Forward TinyChat content to client
-            const sessionUsage = capturedSessionToken
-              ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
-              : undefined;
             const data = JSON.stringify({
               content: chunk.content, model, escalationReason, perplexity: perplexityValue,
-              ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+              ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
             });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
@@ -149,12 +150,9 @@ async function handler(request: NextRequest) {
 
             for await (const chunk of blockRunStream) {
               if (chunk.done) {
-                const sessionUsage = capturedSessionToken
-                  ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
-                  : undefined;
                 const doneData = JSON.stringify({
                   content: '', model, escalationReason, perplexity: perplexityValue,
-                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
                 });
                 controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
                 controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -162,12 +160,9 @@ async function handler(request: NextRequest) {
                 return;
               }
 
-              const sessionUsage = capturedSessionToken
-                ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
-                : undefined;
               const data = JSON.stringify({
                 content: chunk.content, model, escalationReason, perplexity: perplexityValue,
-                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
               });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
@@ -207,7 +202,7 @@ function createStreamResponse(
   model: ModelType,
   escalationReason: EscalationReason,
   perplexity?: number,
-  session?: { totalCostCents: number } | undefined,
+  sessionToken?: string,
 ) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -217,7 +212,7 @@ function createStreamResponse(
           if (chunk.done) {
             const doneData = JSON.stringify({
               content: '', model, escalationReason,
-              ...(session ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: session.totalCostCents } : {}),
+              ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(sessionToken) } : {}),
             });
             controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -227,7 +222,7 @@ function createStreamResponse(
 
           const data = JSON.stringify({
             content: chunk.content, model, escalationReason,
-            ...(session ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: session.totalCostCents } : {}),
+            ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(sessionToken) } : {}),
           });
           controller.enqueue(encoder.encode(`data: ${data}\n\n`));
         }
