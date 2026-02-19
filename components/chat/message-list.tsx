@@ -1,8 +1,7 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
 import { MessageContent } from './message-content';
 import { Brain, Rocket, Bot, User } from 'lucide-react';
@@ -22,11 +21,24 @@ interface MessageListProps {
 }
 
 export function MessageList({ messages, isLoading }: MessageListProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
 
-  // Auto-scroll to bottom when messages change
+  // Track whether user has scrolled away from the bottom
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const threshold = 100;
+    isNearBottomRef.current =
+      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+  }, []);
+
+  // Auto-scroll only when user is near the bottom
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (isNearBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   if (messages.length === 0) {
@@ -41,7 +53,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
   }
 
   return (
-    <ScrollArea className="flex-1 p-6">
+    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6">
       <div className="space-y-6 max-w-3xl mx-auto">
         {messages.map((message, index) => (
           <motion.div
@@ -129,6 +141,6 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
         )}
         <div ref={bottomRef} />
       </div>
-    </ScrollArea>
+    </div>
   );
 }

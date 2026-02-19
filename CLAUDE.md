@@ -6,9 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **TinyBrain** is an AI inference service demonstrating the x402 protocol from both merchant and agent perspectives:
 - **Merchant**: Accepts $0.01 USDC payments from users for queries
-- **Agent**: Pays Hyperbolic ~$0.10 for DeepSeek R1 when user triggers escalation keywords
+- **Agent**: Pays BlockRun.ai ~$0.001 for DeepSeek R1 when queries exceed TinyChat's confidence
 
-The project uses a locally-trained 561M parameter model (TinyChat) that escalates complex queries to more powerful models via x402 payments.
+The project uses a locally-trained 561M parameter model (TinyChat) that measures its own uncertainty (perplexity) and escalates complex queries to more powerful models via x402 payments.
 
 ## Commands
 
@@ -45,10 +45,16 @@ Next.js App (this repo)
 ├── Frontend: Chat UI, wallet connection
 ├── API Routes: /api/chat (x402 protected, $0.01/query)
 │
+├── Routing: Two-phase perplexity-based escalation
+│   ├── TinyChat emits perplexity as first SSE event
+│   ├── Low perplexity → continue TinyChat stream (free for server)
+│   ├── High perplexity → abort, route to BlockRun (server pays ~$0.001)
+│   └── Keyword override → force BlockRun regardless of perplexity
+│
 ├── TinyChat Service: Modal serverless GPU (T4)
 │   └── https://tuggspeedman-ai--tinychat-chat-completions.modal.run
-├── Hyperbolic x402 API: DeepSeek R1 for escalation (~$0.10/query) - WORKING
-├── Daydreams x402 API: Claude Sonnet 4 ($0.01/query) - BROKEN (401 errors)
+├── BlockRun.ai: DeepSeek R1 for escalation (~$0.001/query via x402)
+├── Daydreams x402 API: Claude Sonnet 4 ($0.01/query) - BROKEN (401 errors, kept for future)
 └── Coinbase CDP Facilitator: Payment verification/settlement (Base mainnet)
 ```
 
@@ -56,10 +62,12 @@ Next.js App (this repo)
 1. User sends message → Chat UI
 2. x402-fetch handles 402 → User signs payment ($0.01)
 3. Coinbase CDP facilitator verifies and settles payment
-4. Server routes based on keywords:
-   - Simple queries → TinyChat (free for server)
-   - "think hard" queries → Hyperbolic DeepSeek R1 (~$0.10 from treasury)
-5. Response streams back with model attribution badge
+4. Server checks for keyword escalation triggers first
+5. If no keywords: starts TinyChat stream, reads perplexity from first SSE event
+   - Low perplexity → continue TinyChat stream (free for server)
+   - High perplexity → abort TinyChat, route to BlockRun DeepSeek R1
+6. If keywords present: route directly to BlockRun DeepSeek R1
+7. Response streams back with model attribution badge + perplexity value
 
 ### Tech Stack
 - **Framework**: Next.js 15 with Turbopack, React 19
@@ -67,6 +75,7 @@ Next.js App (this repo)
 - **UI Components**: shadcn/ui (new-york style) with Lucide icons
 - **Animations**: Framer Motion, tw-animate-css
 - **Payments**: x402-fetch (client), @coinbase/x402 (facilitator), custom x402-streaming wrapper
+- **Escalation**: @blockrun/llm (DeepSeek R1 via x402, ~$0.001/query)
 - **Wallet**: wagmi + viem (Base mainnet)
 
 ### Path Aliases
@@ -76,11 +85,11 @@ Next.js App (this repo)
 - Hooks: `@/hooks`
 
 ### Key Files
-- `app/api/chat/route.ts` - x402-protected chat endpoint with routing ($0.01/query)
-- `lib/tinychat-client.ts` - TypeScript client for TinyChat API with SSE streaming
-- `lib/hyperbolic-client.ts` - Hyperbolic x402 client (non-streaming, $0.10/query)
+- `app/api/chat/route.ts` - x402-protected chat endpoint with two-phase perplexity routing ($0.01/query)
+- `lib/tinychat-client.ts` - TypeScript client for TinyChat API with SSE streaming + perplexity parsing
+- `lib/blockrun-client.ts` - BlockRun.ai x402 client for DeepSeek R1 escalation (~$0.001/query)
 - `lib/daydreams-client.ts` - Daydreams Router client (not deployed yet, kept for future)
-- `lib/router.ts` - Keyword-based escalation routing
+- `lib/router.ts` - Perplexity-based + keyword escalation routing (threshold: 80, needs calibration)
 - `lib/treasury.ts` - Server-side treasury wallet signer
 - `lib/x402-streaming.ts` - Custom streaming-compatible x402 wrapper (fire-and-forget settlement)
 - `lib/wagmi-config.ts` - Wallet configuration for Base mainnet
@@ -88,13 +97,20 @@ Next.js App (this repo)
 - `components/wallet-connect.tsx` - Wallet connect/disconnect button
 - `components/theme-toggle.tsx` - Dark/light mode toggle button
 - `components/chat/chat-interface.tsx` - Chat UI with wrapFetchWithPayment integration
-- `components/chat/message-list.tsx` - Message display with avatars and model badges
+- `components/chat/message-list.tsx` - Message display with avatars, model badges, and perplexity values
 - `components/chat/message-content.tsx` - Markdown rendering and think block parsing
 - `components/chat/think-block.tsx` - Collapsible reasoning block for DeepSeek R1
 - `components/chat/message-input.tsx` - Auto-expanding textarea with gradient send button
 
-## Escalation Keywords
-Queries containing these keywords route to Hyperbolic (DeepSeek R1):
+## Escalation Routing
+
+### Perplexity-Based (automatic)
+TinyChat computes perplexity during prefill and emits it as the first SSE event. If perplexity exceeds the threshold (currently 80), the server aborts the TinyChat stream and routes to BlockRun DeepSeek R1 instead.
+
+**Note**: Perplexity calibration is pending. Observed values are all very low (2-18), so the threshold of 80 never triggers automatic escalation yet. Keyword escalation works as a manual override.
+
+### Keyword-Based (manual override)
+Queries containing these keywords skip TinyChat entirely and route directly to BlockRun (DeepSeek R1):
 - "think hard", "use advanced", "be smart", "reason carefully"
 - "complex", "difficult", "challenging", "deep thinking"
 
@@ -120,23 +136,23 @@ CDP_API_KEY_SECRET=...                       # Coinbase Developer Platform API k
 
 ### x402 Providers & Facilitators
 - **Coinbase CDP Facilitator**: `https://api.cdp.coinbase.com/platform/v2/x402` (Base mainnet, requires CDP API keys)
-- **Hyperbolic**: `https://hyperbolic-x402.vercel.app/v1/chat/completions` (DeepSeek R1, ~$0.10/query) - PRIMARY (working)
+- **BlockRun.ai**: DeepSeek R1 via `@blockrun/llm` SDK (~$0.001/query, handles x402 internally) - PRIMARY (working)
 - **Daydreams**: `https://api-beta.daydreams.systems/v1/chat/completions` - BROKEN (x402 returns 401 even with valid signatures)
+- **Hyperbolic**: Replaced by BlockRun.ai. `lib/hyperbolic-client.ts` deleted.
 
 ### Known Issues
-- **Hyperbolic streaming broken**: Their `stream: true` endpoint returns 500 errors. Using `stream: false` as workaround.
-- **Daydreams x402 broken**: Their x402 payment validation returns 401 "Invalid x402 payment" even with properly signed payments. This affects both the `x402-fetch` library and their own `@daydreamsai/ai-sdk-provider` SDK. Client kept in codebase for future testing.
+- **Perplexity threshold needs calibration**: All observed perplexity values are 2-18, well below the threshold of 80. Automatic perplexity-based escalation never triggers. Keyword escalation works as manual override.
+- **Daydreams x402 broken**: Their x402 payment validation returns 401 "Invalid x402 payment" even with properly signed payments. Client kept in codebase for future testing.
 
 ### Future Enhancements
 - **PayAI Facilitator Fallback**: Add `https://facilitator.payai.network` as fallback if CDP fails
-- **Daydreams as cheaper option**: If Daydreams fixes their x402 ($0.01/query vs Hyperbolic's $0.10), switch back
+- **Daydreams as alternative**: If Daydreams fixes their x402 ($0.01/query), could add as additional provider
 
 ### Upcoming Work
 See [tinybrain-updated-project-plan.md](tinybrain-updated-project-plan.md) for the v2 upgrade plan:
 - x402 v2 migration (`@x402/*` packages, `PAYMENT-SIGNATURE` headers, CAIP-2 networks)
-- BlockRun.ai replacing Hyperbolic as escalation provider (~$0.001/query vs $0.10)
-- Perplexity-based escalation routing (TinyChat measures its own uncertainty)
 - "Bar Tab" session-based payment mode (deposit, chat freely, settle at end)
+- Perplexity threshold calibration (collect more samples, find good cutoff)
 
 ---
 
@@ -156,7 +172,7 @@ TinyChat runs on Modal serverless GPU (T4) for production:
 **Key Modal files**:
 - `modal_app.py` - Modal deployment with T4 GPU, SSE streaming, API key auth
 - Modal Volume `tinychat-checkpoints` - stores model weights and tokenizer
-- Modal Secret `tinychat-api-key` - stores `TINYCHAT_API_KEY` for authentication
+- Modal Secret `tinychat-api-key` - stores key as `NANOCHAT_API_KEY` env var (checked via `X-API-Key` header)
 
 **URL Handling in TinyBrain** ([tinychat-client.ts:30-34](lib/tinychat-client.ts#L30-L34)):
 - Modal URLs (contain `modal.run` or `chat-completions`) are used directly
@@ -224,7 +240,10 @@ model, tokenizer, meta_data = build_model(
 }
 ```
 
-**Response**: SSE stream with `data: {"token": "...", "gpu": 0}` chunks, ending with `data: {"done": true}`
+**Response**: SSE stream:
+- First event: `data: {"perplexity": 17.76}` (computed during prefill)
+- Token events: `data: {"token": "...", "gpu": 0}`
+- Final event: `data: {"done": true}`
 
 ### Dependencies (pyproject.toml)
 

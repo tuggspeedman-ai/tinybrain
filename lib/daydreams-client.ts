@@ -1,4 +1,6 @@
-import { wrapFetchWithPayment } from 'x402-fetch';
+import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
+import { registerExactEvmScheme } from '@x402/evm/exact/client';
+import type { ClientEvmSigner } from '@x402/evm';
 import { treasuryWallet } from './treasury';
 import type { ChatMessage, ChatStreamChunk } from './tinychat-client';
 
@@ -14,9 +16,15 @@ const SYSTEM_MESSAGE: ChatMessage = {
   content: 'You are a helpful AI assistant. Keep your responses concise and focused.',
 };
 
-// maxValue: $0.02 in micro-USDC (Daydreams charges $0.01)
-/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-const fetchWithPayment = wrapFetchWithPayment(fetch, treasuryWallet as any, BigInt(20000));
+// Create x402 v2 client with treasury wallet for server-side payments
+// Adapt viem WalletClient to ClientEvmSigner (address at top level)
+const signer: ClientEvmSigner = {
+  address: treasuryWallet.account!.address,
+  signTypedData: (args) => treasuryWallet.signTypedData(args),
+};
+const client = new x402Client();
+registerExactEvmScheme(client, { signer });
+const fetchWithPayment = wrapFetchWithPayment(fetch, client);
 
 export async function* streamDaydreams(
   messages: ChatMessage[],

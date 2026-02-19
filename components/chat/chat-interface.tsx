@@ -4,7 +4,9 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAccount } from 'wagmi';
 import { createWalletClient, custom } from 'viem';
 import { base } from 'viem/chains';
-import { wrapFetchWithPayment } from 'x402-fetch';
+import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
+import { registerExactEvmScheme } from '@x402/evm/exact/client';
+import type { ClientEvmSigner } from '@x402/evm';
 import { MessageList, type Message } from './message-list';
 import { MessageInput } from './message-input';
 import { Card } from '@/components/ui/card';
@@ -18,7 +20,7 @@ export function ChatInterface() {
 
   // Use ref to store fetchWithPayment to avoid hydration mismatch
   // This is set only on client side via useEffect
-  const fetchWithPaymentRef = useRef<ReturnType<typeof wrapFetchWithPayment> | null>(null);
+  const fetchWithPaymentRef = useRef<((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null>(null);
 
   // Prevent hydration mismatch by only rendering wallet-dependent UI after mount
   useEffect(() => {
@@ -40,9 +42,16 @@ export function ChatInterface() {
       transport: custom(ethereum),
     });
 
-    // Cast to any to bypass type mismatch - the wallet client will work at runtime
-    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
-    fetchWithPaymentRef.current = wrapFetchWithPayment(fetch, walletClient as any);
+    // Adapt viem WalletClient to ClientEvmSigner interface
+    // WalletClient has account.address, but ClientEvmSigner expects top-level address
+    const signer: ClientEvmSigner = {
+      address: walletClient.account!.address,
+      signTypedData: (args) => walletClient.signTypedData(args),
+    };
+
+    const client = new x402Client();
+    registerExactEvmScheme(client, { signer });
+    fetchWithPaymentRef.current = wrapFetchWithPayment(fetch, client);
   }, [isConnected, address]);
 
   const sendMessage = useCallback(async (content: string) => {
@@ -79,9 +88,9 @@ export function ChatInterface() {
 
       // Use payment-wrapped fetch - it will automatically:
       // 1. Make the request
-      // 2. If 402, extract payment details
-      // 3. Sign with wallet
-      // 4. Retry with X-PAYMENT header
+      // 2. If 402, extract payment requirements from PAYMENT-REQUIRED header
+      // 3. Sign with wallet (EIP-3009 transferWithAuthorization)
+      // 4. Retry with PAYMENT-SIGNATURE header
       const response = await fetchWithPaymentRef.current('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

@@ -183,7 +183,7 @@ export const POST = withX402Streaming(
   TREASURY_ADDRESS,
   {
     price: "$0.01",
-    network: "base",
+    network: "eip155:8453",
     config: {
       description: "Chat with TinyBrain AI",
       mimeType: "text/event-stream",
