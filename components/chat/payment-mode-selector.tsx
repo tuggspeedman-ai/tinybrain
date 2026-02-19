@@ -40,6 +40,9 @@ export function PaymentModeSelector({
         <p className="text-sm text-muted-foreground">
           Choose your payment mode to start chatting
         </p>
+        <p className="text-xs text-muted-foreground/70 leading-relaxed max-w-sm mx-auto">
+          This is just a demo &mdash; TinyBrain needs to cover his own bills when he asks smarter models for help!
+        </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full">

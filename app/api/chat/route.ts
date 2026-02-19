@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { withX402Streaming } from '@/lib/x402-streaming';
 import { streamChat, type ChatMessage } from '@/lib/tinychat-client';
 import { streamDaydreams } from '@/lib/daydreams-client';
-import { streamBlockRun } from '@/lib/blockrun-client';
+import { streamBlockRun, callBlockRun } from '@/lib/blockrun-client';
 import {
   shouldEscalateByKeyword,
   shouldEscalateByPerplexity,
@@ -62,10 +62,21 @@ async function handler(request: NextRequest) {
         session = sessionStore.getSessionByToken(sessionToken);
       }
 
-      const streamSource = model === 'blockrun'
-        ? streamBlockRun(messages)
-        : streamDaydreams(messages);
-      return createStreamResponse(streamSource, model, escalationReason, undefined, sessionToken ?? undefined);
+      if (model === 'blockrun') {
+        // Call BlockRun eagerly so logs appear at handler level (Vercel captures them)
+        const blockRunResult = await callBlockRun(messages);
+        const streamSource = (async function* () {
+          if (blockRunResult.reasoningContent) {
+            yield { content: `<think>${blockRunResult.reasoningContent}</think>`, done: false };
+          }
+          if (blockRunResult.content) {
+            yield { content: blockRunResult.content, done: false };
+          }
+          yield { content: '', done: true };
+        })();
+        return createStreamResponse(streamSource, model, escalationReason, undefined, sessionToken ?? undefined);
+      }
+      return createStreamResponse(streamDaydreams(messages), model, escalationReason, undefined, sessionToken ?? undefined);
     }
 
     // Phase 2: Two-phase perplexity routing

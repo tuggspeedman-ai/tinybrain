@@ -93,12 +93,10 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400">
                       <Rocket size={12} />
                       <span>
-                        DeepSeek R1 via BlockRun
+                        Answered by DeepSeek R1
                         {message.escalationReason === 'perplexity' && message.perplexity != null
-                          ? ` (perplexity: ${message.perplexity})`
-                          : message.escalationReason === 'keyword'
-                            ? ' (requested)'
-                            : ''}
+                          ? ` — TinyChat was unsure (perplexity: ${message.perplexity})`
+                          : ''}
                       </span>
                     </span>
                   ) : (

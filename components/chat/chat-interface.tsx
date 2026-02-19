@@ -391,7 +391,7 @@ export function ChatInterface() {
                 TinyBrain
               </h1>
               <p className="text-sm text-muted-foreground">
-                Chat with a locally-trained AI model
+                Powered by TinyChat, a locally-trained AI model
               </p>
             </div>
             {paymentMode === 'per-request' && (
@@ -419,7 +419,7 @@ export function ChatInterface() {
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
               </span>
-              Connect your wallet to chat
+              Connect a wallet on Base to chat
             </div>
           )}
 
@@ -466,7 +466,7 @@ export function ChatInterface() {
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
               <div className="text-center space-y-2">
-                <p>Connect your wallet to start chatting</p>
+                <p>Connect a wallet on Base to start chatting</p>
               </div>
             </div>
           )}

@@ -15,9 +15,12 @@ const client = new LLMClient({
   privateKey: process.env.TREASURY_PRIVATE_KEY as `0x${string}`,
 });
 
-export async function* streamBlockRun(
-  messages: ChatMessage[]
-): AsyncGenerator<ChatStreamChunk> {
+/**
+ * Call BlockRun API and return the parsed response.
+ * Separated from the generator so logging happens at the caller's level
+ * (Vercel swallows console.log inside ReadableStream callbacks).
+ */
+export async function callBlockRun(messages: ChatMessage[]) {
   const messagesWithSystem = [SYSTEM_MESSAGE, ...messages];
 
   console.log(`[BlockRun] Starting request with model ${BLOCKRUN_MODEL}`);
@@ -27,16 +30,26 @@ export async function* streamBlockRun(
     temperature: 0.8,
   });
 
-  const message = result.choices?.[0]?.message;
+  const choice = result.choices?.[0];
+  const message = choice?.message;
   const content = message?.content || '';
+
   // DeepSeek R1 returns reasoning in a separate field (not typed by BlockRun SDK)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const messageAny = message as any;
   const reasoningContent = messageAny?.reasoning_content as string | undefined;
 
-  // Log all message keys to diagnose whether reasoning_content is available
-  console.log(`[BlockRun] Message keys: ${message ? Object.keys(message).join(', ') : 'null'}`);
-  console.log(`[BlockRun] Got response (${content.length} chars, reasoning: ${reasoningContent?.length ?? 0} chars), usage: ${JSON.stringify(result.usage)}`);
+  // Log full diagnostic info at top level so Vercel captures it
+  const allKeys = message ? Object.keys(message) : [];
+  console.log(`[BlockRun] Response keys: ${allKeys.join(', ') || 'none'} | content: ${content.length} chars | reasoning_content: ${reasoningContent?.length ?? 0} chars | has <think>: ${content.includes('<think>')} | usage: ${JSON.stringify(result.usage)}`);
+
+  return { content, reasoningContent, allKeys };
+}
+
+export async function* streamBlockRun(
+  messages: ChatMessage[]
+): AsyncGenerator<ChatStreamChunk> {
+  const { content, reasoningContent } = await callBlockRun(messages);
 
   // Wrap reasoning in <think> tags so the frontend parser can display it
   if (reasoningContent) {
