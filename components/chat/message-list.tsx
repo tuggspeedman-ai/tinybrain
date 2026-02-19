@@ -4,7 +4,7 @@ import { useEffect, useRef, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { MessageContent } from './message-content';
-import { Brain, Rocket, Bot, User } from 'lucide-react';
+import { Brain, Rocket, Bot, User, DollarSign } from 'lucide-react';
 
 export interface Message {
   id: string;
@@ -13,6 +13,7 @@ export interface Message {
   model?: 'tinychat' | 'blockrun';
   escalationReason?: 'keyword' | 'perplexity' | 'none';
   perplexity?: number;
+  queryCost?: number; // cents, shown as badge in session mode
 }
 
 interface MessageListProps {
@@ -107,6 +108,12 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                         TinyChat
                         {message.perplexity != null ? ` (perplexity: ${message.perplexity})` : ''}
                       </span>
+                    </span>
+                  )}
+                  {message.queryCost != null && (
+                    <span className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+                      <DollarSign size={10} />
+                      ${(message.queryCost / 100).toFixed(2)}
                     </span>
                   )}
                 </div>

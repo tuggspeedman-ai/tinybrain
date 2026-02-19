@@ -7,9 +7,24 @@ import { base } from 'viem/chains';
 import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
 import { registerExactEvmScheme } from '@x402/evm/exact/client';
 import type { ClientEvmSigner } from '@x402/evm';
+import { AnimatePresence, motion } from 'framer-motion';
 import { MessageList, type Message } from './message-list';
 import { MessageInput } from './message-input';
+import { PaymentModeSelector } from './payment-mode-selector';
+import { SessionBar } from './session-bar';
+import { SessionReceipt, type ReceiptData } from './session-receipt';
+import { buildAuthorization, signAuthorization } from '@/lib/session-signing';
 import { Card } from '@/components/ui/card';
+
+type PaymentMode = 'select' | 'per-request' | 'tab';
+
+interface SessionState {
+  sessionToken: string;
+  depositCents: number;
+  queryCount: number;
+  totalCostCents: number;
+  createdAt: number;
+}
 
 export function ChatInterface() {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -18,35 +33,47 @@ export function ChatInterface() {
   const [mounted, setMounted] = useState(false);
   const { isConnected, address } = useAccount();
 
-  // Use ref to store fetchWithPayment to avoid hydration mismatch
-  // This is set only on client side via useEffect
-  const fetchWithPaymentRef = useRef<((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null>(null);
+  // Payment mode state
+  const [paymentMode, setPaymentMode] = useState<PaymentMode>('select');
+  const [session, setSession] = useState<SessionState | null>(null);
+  const [isOpeningTab, setIsOpeningTab] = useState(false);
 
-  // Prevent hydration mismatch by only rendering wallet-dependent UI after mount
+  // Receipt state
+  const [showReceipt, setShowReceipt] = useState(false);
+  const [isEndingSession, setIsEndingSession] = useState(false);
+  const [isPaying, setIsPaying] = useState(false);
+  const [settlementTx, setSettlementTx] = useState<string | null>(null);
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null);
+
+  // x402 fetch ref (for per-request mode)
+  const fetchWithPaymentRef = useRef<((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null>(null);
+  // Wallet client ref (for session signing)
+  const walletClientRef = useRef<ReturnType<typeof createWalletClient> | null>(null);
+
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Set up wallet client only on client side to avoid hydration mismatch
+  // Set up wallet client + x402 fetch on connection change
   useEffect(() => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const ethereum = (window as any).ethereum;
     if (!isConnected || !address || !ethereum) {
       fetchWithPaymentRef.current = null;
+      walletClientRef.current = null;
       return;
     }
 
-    const walletClient = createWalletClient({
+    const wc = createWalletClient({
       account: address,
       chain: base,
       transport: custom(ethereum),
     });
+    walletClientRef.current = wc;
 
-    // Adapt viem WalletClient to ClientEvmSigner interface
-    // WalletClient has account.address, but ClientEvmSigner expects top-level address
     const signer: ClientEvmSigner = {
-      address: walletClient.account!.address,
-      signTypedData: (args) => walletClient.signTypedData(args),
+      address: wc.account!.address,
+      signTypedData: (args) => wc.signTypedData(args),
     };
 
     const client = new x402Client();
@@ -54,8 +81,157 @@ export function ChatInterface() {
     fetchWithPaymentRef.current = wrapFetchWithPayment(fetch, client);
   }, [isConnected, address]);
 
+  // Reset payment mode when wallet disconnects
+  useEffect(() => {
+    if (!isConnected) {
+      setPaymentMode('select');
+      setSession(null);
+      setShowReceipt(false);
+      setSettlementTx(null);
+      setReceiptData(null);
+    }
+  }, [isConnected]);
+
+  // --- Tab lifecycle ---
+
+  const handleSelectPerRequest = useCallback(() => {
+    setPaymentMode('per-request');
+  }, []);
+
+  const handleOpenTab = useCallback(async (depositCents: number) => {
+    if (!walletClientRef.current || !address) return;
+    setIsOpeningTab(true);
+
+    try {
+      // Build and sign the deposit authorization
+      const authorization = buildAuthorization(address as `0x${string}`, depositCents);
+      const signature = await signAuthorization(walletClientRef.current, authorization);
+
+      // POST to open session
+      const res = await fetch('/api/session/open', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          walletAddress: address,
+          depositAuth: { authorization, signature },
+          depositCents,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || 'Failed to open tab');
+      }
+
+      const data = await res.json();
+      setSession({
+        sessionToken: data.sessionToken,
+        depositCents,
+        queryCount: 0,
+        totalCostCents: 0,
+        createdAt: Date.now(),
+      });
+      setPaymentMode('tab');
+    } catch (err) {
+      console.error('Open tab error:', err);
+      setPaymentStatus(`Tab error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setTimeout(() => setPaymentStatus(null), 4000);
+    } finally {
+      setIsOpeningTab(false);
+    }
+  }, [address]);
+
+  const handleEndSession = useCallback(() => {
+    if (!session) return;
+    // Build receipt data from session
+    setIsEndingSession(true);
+
+    const elapsed = Date.now() - session.createdAt;
+    const mins = Math.floor(elapsed / 60000);
+    const secs = Math.floor((elapsed % 60000) / 1000);
+    const duration = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+    // Count breakdown from messages
+    const breakdown = new Map<string, { count: number; totalCost: number }>();
+    for (const m of messages) {
+      if (m.role !== 'assistant' || !m.model || m.queryCost == null) continue;
+      const existing = breakdown.get(m.model) ?? { count: 0, totalCost: 0 };
+      existing.count += 1;
+      existing.totalCost += m.queryCost;
+      breakdown.set(m.model, existing);
+    }
+
+    setReceiptData({
+      duration,
+      breakdown: Array.from(breakdown.entries()).map(([model, data]) => ({
+        model,
+        count: data.count,
+        totalCost: data.totalCost,
+      })),
+      totalCostCents: session.totalCostCents,
+      depositCents: session.depositCents,
+    });
+
+    setShowReceipt(true);
+    setIsEndingSession(false);
+  }, [session, messages]);
+
+  const handlePay = useCallback(async () => {
+    if (!session || !walletClientRef.current || !address) return;
+    setIsPaying(true);
+
+    try {
+      const isZeroCost = session.totalCostCents === 0;
+      let settlementAuth = null;
+      let settlementSig = null;
+
+      if (!isZeroCost) {
+        // Sign settlement for exact amount used
+        const auth = buildAuthorization(address as `0x${string}`, session.totalCostCents);
+        const sig = await signAuthorization(walletClientRef.current, auth);
+        settlementAuth = auth;
+        settlementSig = sig;
+      }
+
+      const res = await fetch('/api/session/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionToken: session.sessionToken,
+          ...(settlementAuth && settlementSig
+            ? { settlementAuth: { authorization: settlementAuth, signature: settlementSig } }
+            : {}),
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json();
+        throw new Error(body.error || 'Settlement failed');
+      }
+
+      const data = await res.json();
+      setSettlementTx(data.settlementTx || 'closed');
+    } catch (err) {
+      console.error('Settlement error:', err);
+      setIsPaying(false);
+      setPaymentStatus(`Settlement error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setTimeout(() => setPaymentStatus(null), 4000);
+    }
+  }, [session, address]);
+
+  const handleReceiptClose = useCallback(() => {
+    setShowReceipt(false);
+    setSettlementTx(null);
+    setReceiptData(null);
+    setSession(null);
+    setPaymentMode('select');
+    setMessages([]);
+    setIsPaying(false);
+  }, []);
+
+  // --- Dual send path ---
+
   const sendMessage = useCallback(async (content: string) => {
-    // Add user message
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -65,7 +241,6 @@ export function ChatInterface() {
     setIsLoading(true);
     setPaymentStatus(null);
 
-    // Create assistant message placeholder
     const assistantMessage: Message = {
       id: crypto.randomUUID(),
       role: 'assistant',
@@ -73,29 +248,36 @@ export function ChatInterface() {
     };
 
     try {
-      // Require wallet connection
-      if (!isConnected || !fetchWithPaymentRef.current) {
-        throw new Error('Please connect your wallet to chat');
-      }
-
-      setPaymentStatus('Requesting payment...');
-
-      // Prepare messages for API (include history)
       const apiMessages = [...messages, userMessage].map((m) => ({
         role: m.role,
         content: m.content,
       }));
 
-      // Use payment-wrapped fetch - it will automatically:
-      // 1. Make the request
-      // 2. If 402, extract payment requirements from PAYMENT-REQUIRED header
-      // 3. Sign with wallet (EIP-3009 transferWithAuthorization)
-      // 4. Retry with PAYMENT-SIGNATURE header
-      const response = await fetchWithPaymentRef.current('/api/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: apiMessages }),
-      });
+      let response: Response;
+
+      if (paymentMode === 'tab' && session) {
+        // Tab mode: plain fetch with session token
+        response = await fetch('/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-SESSION-TOKEN': session.sessionToken,
+          },
+          body: JSON.stringify({ messages: apiMessages }),
+        });
+      } else {
+        // Per-request mode: x402 payment-wrapped fetch
+        if (!isConnected || !fetchWithPaymentRef.current) {
+          throw new Error('Please connect your wallet to chat');
+        }
+        setPaymentStatus('Requesting payment...');
+
+        response = await fetchWithPaymentRef.current('/api/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messages: apiMessages }),
+        });
+      }
 
       setPaymentStatus(null);
 
@@ -104,7 +286,6 @@ export function ChatInterface() {
         throw new Error(`HTTP error: ${response.status} - ${errorBody}`);
       }
 
-      // Add empty assistant message that we'll update
       setMessages((prev) => [...prev, assistantMessage]);
 
       // Read streaming response
@@ -135,20 +316,32 @@ export function ChatInterface() {
               throw new Error(parsed.error);
             }
             if (parsed.content || parsed.model) {
-              // Update the assistant message with new content, model, and escalation info
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === assistantMessage.id
                     ? {
                         ...m,
                         content: m.content + (parsed.content || ''),
-                        // Set model on first chunk that includes it
                         model: m.model || parsed.model,
                         escalationReason: m.escalationReason || parsed.escalationReason,
                         perplexity: m.perplexity ?? parsed.perplexity,
+                        queryCost: m.queryCost ?? parsed.queryCost,
                       }
                     : m
                 )
+              );
+            }
+
+            // Update session usage from SSE metadata
+            if (parsed.sessionUsage && session) {
+              setSession((prev) =>
+                prev
+                  ? {
+                      ...prev,
+                      queryCount: parsed.sessionUsage.queryCount,
+                      totalCostCents: parsed.sessionUsage.totalCostCents,
+                    }
+                  : prev
               );
             }
           } catch {
@@ -158,7 +351,6 @@ export function ChatInterface() {
       }
     } catch (error) {
       console.error('Chat error:', error);
-      // Add error message
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== assistantMessage.id),
         {
@@ -170,45 +362,119 @@ export function ChatInterface() {
     } finally {
       setIsLoading(false);
     }
-  }, [messages, isConnected]);
+  }, [messages, isConnected, paymentMode, session]);
+
+  // --- Render ---
+
+  const showSelector = mounted && isConnected && paymentMode === 'select';
+  const showMessages = paymentMode === 'per-request' || paymentMode === 'tab';
+  const inputDisabled = isLoading || !mounted || !isConnected || paymentMode === 'select';
 
   return (
-    <Card className="flex flex-col h-[calc(100vh-12rem)] min-h-[400px] max-h-[800px] w-full max-w-3xl mx-auto overflow-hidden shadow-lg">
-      <div className="border-b p-4 bg-card">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-              TinyBrain
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Chat with a locally-trained AI model
-            </p>
+    <>
+      <Card className="flex flex-col h-[calc(100vh-12rem)] min-h-[400px] max-h-[800px] w-full max-w-3xl mx-auto overflow-hidden shadow-lg">
+        {/* Header */}
+        <div className="border-b p-4 bg-card">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                TinyBrain
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Chat with a locally-trained AI model
+              </p>
+            </div>
+            {paymentMode === 'per-request' && (
+              <span className="text-xs bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-full font-medium border border-blue-500/20">
+                $0.01 / query
+              </span>
+            )}
           </div>
-          <span className="text-xs bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-full font-medium border border-blue-500/20">
-            $0.01 / query
-          </span>
+
+          {/* Session bar (tab mode) */}
+          {paymentMode === 'tab' && session && (
+            <SessionBar
+              queryCount={session.queryCount}
+              totalCostCents={session.totalCostCents}
+              depositCents={session.depositCents}
+              onEndSession={handleEndSession}
+              isEnding={isEndingSession}
+            />
+          )}
+
+          {/* Wallet not connected warning */}
+          {mounted && !isConnected && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-lg">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+              </span>
+              Connect your wallet to chat
+            </div>
+          )}
+
+          {/* Payment status banner */}
+          {paymentStatus && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 rounded-lg">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
+              </span>
+              {paymentStatus}
+            </div>
+          )}
         </div>
-        {mounted && !isConnected && (
-          <div className="mt-3 flex items-center gap-2 text-sm text-amber-600 bg-amber-50 dark:bg-amber-950/30 px-3 py-2 rounded-lg">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
-            </span>
-            Connect your wallet to chat
-          </div>
-        )}
-        {paymentStatus && (
-          <div className="mt-3 flex items-center gap-2 text-sm text-blue-600 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 rounded-lg">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-500"></span>
-            </span>
-            {paymentStatus}
-          </div>
-        )}
-      </div>
-      <MessageList messages={messages} isLoading={isLoading} />
-      <MessageInput onSend={sendMessage} disabled={isLoading || !mounted || !isConnected} />
-    </Card>
+
+        {/* Main content area */}
+        <AnimatePresence mode="wait">
+          {showSelector ? (
+            <motion.div
+              key="selector"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex items-center justify-center overflow-y-auto"
+            >
+              <PaymentModeSelector
+                onSelectPerRequest={handleSelectPerRequest}
+                onSelectTab={handleOpenTab}
+                isOpeningTab={isOpeningTab}
+              />
+            </motion.div>
+          ) : showMessages ? (
+            <motion.div
+              key="messages"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex-1 flex flex-col min-h-0"
+            >
+              <MessageList messages={messages} isLoading={isLoading} />
+            </motion.div>
+          ) : (
+            <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
+              <div className="text-center space-y-2">
+                <p>Connect your wallet to start chatting</p>
+              </div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Input */}
+        <MessageInput onSend={sendMessage} disabled={inputDisabled} />
+      </Card>
+
+      {/* Receipt modal (outside card for fixed positioning) */}
+      <SessionReceipt
+        isOpen={showReceipt}
+        onClose={handleReceiptClose}
+        onPay={handlePay}
+        receipt={receiptData}
+        isPaying={isPaying}
+        settlementTx={settlementTx}
+      />
+    </>
   );
 }

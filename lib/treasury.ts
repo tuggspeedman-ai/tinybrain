@@ -1,4 +1,4 @@
-import { createWalletClient, http } from 'viem';
+import { createWalletClient, createPublicClient, http } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { base } from 'viem/chains';
 
@@ -12,6 +12,11 @@ const account = privateKeyToAccount(TREASURY_PRIVATE_KEY);
 
 export const treasuryWallet = createWalletClient({
   account,
+  chain: base,
+  transport: http(),
+});
+
+export const publicClient = createPublicClient({
   chain: base,
   transport: http(),
 });

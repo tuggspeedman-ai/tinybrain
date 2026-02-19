@@ -11,6 +11,8 @@ import {
   type ModelType,
   type EscalationReason,
 } from '@/lib/router';
+import { sessionStore } from '@/lib/session-store';
+import { SESSION_PRICING } from '@/lib/session-pricing';
 
 export const runtime = 'nodejs';
 
@@ -29,6 +31,10 @@ async function handler(request: NextRequest) {
       );
     }
 
+    // Session mode: check for session token (bar tab)
+    const sessionToken = request.headers.get('x-session-token');
+    let session = sessionToken ? sessionStore.getSessionByToken(sessionToken) : undefined;
+
     // Phase 1: Check keyword escalation (checked first, acts as override)
     const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || '';
     const keywordEscalation = shouldEscalateByKeyword(lastUserMessage);
@@ -38,10 +44,21 @@ async function handler(request: NextRequest) {
       console.log(`[Router] Keyword escalation triggered for: "${lastUserMessage.slice(0, 50)}..."`);
       const model: ModelType = DEFAULT_ESCALATION_PROVIDER;
       const escalationReason: EscalationReason = 'keyword';
+
+      // Track usage in session mode
+      if (sessionToken && session) {
+        sessionStore.addUsage(sessionToken, {
+          model,
+          cost: SESSION_PRICING.QUERY_COST_CENTS,
+          escalationReason,
+        });
+        session = sessionStore.getSessionByToken(sessionToken);
+      }
+
       const streamSource = model === 'blockrun'
         ? streamBlockRun(messages)
         : streamDaydreams(messages);
-      return createStreamResponse(streamSource, model, escalationReason);
+      return createStreamResponse(streamSource, model, escalationReason, undefined, session);
     }
 
     // Phase 2: Two-phase perplexity routing
@@ -50,6 +67,7 @@ async function handler(request: NextRequest) {
     const tinychatStream = streamChat({ messages });
 
     const encoder = new TextEncoder();
+    const capturedSessionToken = sessionToken;
     const stream = new ReadableStream({
       async start(controller) {
         try {
@@ -57,6 +75,7 @@ async function handler(request: NextRequest) {
           let escalationReason: EscalationReason = 'none';
           let perplexityValue: number | undefined;
           let escalated = false;
+          let usageTracked = false;
 
           for await (const chunk of tinychatStream) {
             // Check for perplexity event (first SSE event from TinyChat)
@@ -70,14 +89,41 @@ async function handler(request: NextRequest) {
                 model = DEFAULT_ESCALATION_PROVIDER;
                 escalationReason = 'perplexity';
                 escalated = true;
+
+                // Track usage in session mode (escalated to BlockRun)
+                if (capturedSessionToken && !usageTracked) {
+                  sessionStore.addUsage(capturedSessionToken, {
+                    model,
+                    cost: SESSION_PRICING.QUERY_COST_CENTS,
+                    escalationReason,
+                  });
+                  usageTracked = true;
+                }
+
                 break; // Exit TinyChat stream loop
               }
               // Perplexity OK — continue streaming from TinyChat
               continue;
             }
 
+            // Track usage on first content chunk (TinyChat happy path)
+            if (!usageTracked && chunk.content && capturedSessionToken) {
+              sessionStore.addUsage(capturedSessionToken, {
+                model: 'tinychat',
+                cost: SESSION_PRICING.QUERY_COST_CENTS,
+                escalationReason: 'none',
+              });
+              usageTracked = true;
+            }
+
             if (chunk.done) {
-              const doneData = JSON.stringify({ content: '', model, escalationReason, perplexity: perplexityValue });
+              const sessionUsage = capturedSessionToken
+                ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
+                : undefined;
+              const doneData = JSON.stringify({
+                content: '', model, escalationReason, perplexity: perplexityValue,
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+              });
               controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
               controller.close();
@@ -85,7 +131,13 @@ async function handler(request: NextRequest) {
             }
 
             // Forward TinyChat content to client
-            const data = JSON.stringify({ content: chunk.content, model, escalationReason, perplexity: perplexityValue });
+            const sessionUsage = capturedSessionToken
+              ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
+              : undefined;
+            const data = JSON.stringify({
+              content: chunk.content, model, escalationReason, perplexity: perplexityValue,
+              ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+            });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
 
@@ -97,14 +149,26 @@ async function handler(request: NextRequest) {
 
             for await (const chunk of blockRunStream) {
               if (chunk.done) {
-                const doneData = JSON.stringify({ content: '', model, escalationReason, perplexity: perplexityValue });
+                const sessionUsage = capturedSessionToken
+                  ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
+                  : undefined;
+                const doneData = JSON.stringify({
+                  content: '', model, escalationReason, perplexity: perplexityValue,
+                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+                });
                 controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
                 controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
                 controller.close();
                 return;
               }
 
-              const data = JSON.stringify({ content: chunk.content, model, escalationReason, perplexity: perplexityValue });
+              const sessionUsage = capturedSessionToken
+                ? sessionStore.getSessionByToken(capturedSessionToken)?.totalCostCents
+                : undefined;
+              const data = JSON.stringify({
+                content: chunk.content, model, escalationReason, perplexity: perplexityValue,
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage } : {}),
+              });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
           }
@@ -142,6 +206,8 @@ function createStreamResponse(
   streamSource: AsyncGenerator<{ content: string; done: boolean }>,
   model: ModelType,
   escalationReason: EscalationReason,
+  perplexity?: number,
+  session?: { totalCostCents: number } | undefined,
 ) {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -149,12 +215,20 @@ function createStreamResponse(
       try {
         for await (const chunk of streamSource) {
           if (chunk.done) {
+            const doneData = JSON.stringify({
+              content: '', model, escalationReason,
+              ...(session ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: session.totalCostCents } : {}),
+            });
+            controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
             controller.close();
             return;
           }
 
-          const data = JSON.stringify({ content: chunk.content, model, escalationReason });
+          const data = JSON.stringify({
+            content: chunk.content, model, escalationReason,
+            ...(session ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: session.totalCostCents } : {}),
+          });
           controller.enqueue(encoder.encode(`data: ${data}\n\n`));
         }
       } catch (error) {
@@ -178,6 +252,7 @@ function createStreamResponse(
 // Wrap with streaming-compatible x402 payment protection
 // Uses Coinbase facilitator (requires CDP_API_KEY_ID and CDP_API_KEY_SECRET env vars)
 // Fire-and-forget settlement to avoid blocking the stream
+// onSetup registers the session bypass hook for bar tab mode
 export const POST = withX402Streaming(
   handler,
   TREASURY_ADDRESS,
@@ -188,5 +263,26 @@ export const POST = withX402Streaming(
       description: "Chat with TinyBrain AI",
       mimeType: "text/event-stream",
     },
-  }
+  },
+  (httpServer) => {
+    // Register session bypass hook: requests with valid X-SESSION-TOKEN
+    // skip x402 payment and are served from the session's deposit
+    httpServer.onProtectedRequest(async (context) => {
+      const sessionToken = context.adapter.getHeader('x-session-token');
+      if (!sessionToken) return; // No session token — continue to x402 payment flow
+
+      const session = sessionStore.getSessionByToken(sessionToken);
+      if (!session || session.status !== 'active') {
+        return { abort: true, reason: 'Invalid or expired session' };
+      }
+
+      if (!sessionStore.hasAvailableBalance(sessionToken)) {
+        return { abort: true, reason: 'Session deposit exhausted' };
+      }
+
+      // Valid session with available balance — grant access without x402 payment
+      console.log(`[Session] Granting access for session ${session.id} (${session.totalCostCents}¢ / ${session.depositAmount}¢)`);
+      return { grantAccess: true };
+    });
+  },
 );

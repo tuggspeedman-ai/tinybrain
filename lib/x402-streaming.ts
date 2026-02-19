@@ -26,7 +26,8 @@ interface RouteConfig {
 export function withX402Streaming(
   handler: (request: NextRequest) => Promise<Response>,
   payTo: `0x${string}`,
-  routeConfig: RouteConfig
+  routeConfig: RouteConfig,
+  onSetup?: (httpServer: x402HTTPResourceServer) => void,
 ): (request: NextRequest) => Promise<Response> {
 
   // Create facilitator client using Coinbase CDP config
@@ -47,6 +48,11 @@ export function withX402Streaming(
     description: routeConfig.config?.description ?? '',
     mimeType: routeConfig.config?.mimeType ?? 'application/json',
   });
+
+  // Allow caller to register hooks (e.g. session bypass via onProtectedRequest)
+  if (onSetup) {
+    onSetup(httpServer);
+  }
 
   let initialized = false;
 
