@@ -2,7 +2,7 @@
 
 An AI that earns and spends autonomously. TinyBrain charges users $0.01 per query via the [x402](https://www.x402.org/) payment protocol, and when a query is too complex for its own model, it pays ~$0.001 for smarter help from DeepSeek R1 — pocketing the difference.
 
-**Live demo:** [nanobrain-alpha.vercel.app](https://nanobrain-alpha.vercel.app)
+**Live demo:** [tinybrain.vercel.app](https://tinybrain.vercel.app)
 
 ## How it works
 
