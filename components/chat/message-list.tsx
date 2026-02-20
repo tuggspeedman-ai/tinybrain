@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { MessageContent } from './message-content';
-import { Brain, Rocket, Bot, User, DollarSign } from 'lucide-react';
+import { Brain, Rocket, Bot, User, DollarSign, ChevronDown, Sparkles } from 'lucide-react';
 
 export interface Message {
   id: string;
@@ -15,23 +15,57 @@ export interface Message {
   queryCost?: number; // cents, shown as badge in session mode
 }
 
+const STARTER_PROMPTS = [
+  "What's your name?",
+  "Tell me a joke",
+  "Who created you?",
+  "How many parameters do you have?",
+  "What can you help me with?",
+  "Say something funny",
+  "What's your favorite color?",
+  "Tell me about yourself",
+  "What are you good at?",
+  "Do you dream?",
+  "What's the meaning of life?",
+  "Are you sentient?",
+  "What makes you different from other AIs?",
+  "Give me a fun fact",
+  "What's your favorite word?",
+  "How were you trained?",
+];
+
+function shuffleAndPick<T>(arr: T[], count: number): T[] {
+  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
 interface MessageListProps {
   messages: Message[];
   isLoading?: boolean;
+  onSend?: (message: string) => void;
 }
 
-export function MessageList({ messages, isLoading }: MessageListProps) {
+export function MessageList({ messages, isLoading, onSend }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  // Pick 4 random starter prompts on mount
+  const starters = useMemo(() => shuffleAndPick(STARTER_PROMPTS, 4), []);
 
   // Track whether user has scrolled away from the bottom
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
     const threshold = 100;
-    isNearBottomRef.current =
-      el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    isNearBottomRef.current = nearBottom;
+    setShowScrollButton(!nearBottom);
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
   // Auto-scroll only when user is near the bottom
@@ -44,16 +78,36 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4">
           <Bot className="h-12 w-12 mx-auto text-muted-foreground/50" />
           <p>Send a message to start chatting with TinyBrain</p>
+          {onSend && (
+            <div className="flex flex-wrap justify-center gap-2 max-w-md mx-auto">
+              {starters.map((prompt) => (
+                <button
+                  key={prompt}
+                  onClick={() => onSend(prompt)}
+                  className={cn(
+                    'inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full',
+                    'border border-border/50 bg-card/50',
+                    'hover:border-blue-500/50 hover:bg-blue-500/5',
+                    'transition-all duration-200 cursor-pointer',
+                    'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  <Sparkles size={12} />
+                  {prompt}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
   }
 
   return (
-    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6">
+    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-6 relative">
       <div className="space-y-6 max-w-3xl mx-auto">
         {messages.map((message, index) => (
           <motion.div
@@ -137,6 +191,28 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Scroll to bottom button */}
+      <AnimatePresence>
+        {showScrollButton && (
+          <motion.button
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.8 }}
+            transition={{ duration: 0.15 }}
+            onClick={scrollToBottom}
+            className={cn(
+              'absolute bottom-4 left-1/2 -translate-x-1/2',
+              'w-8 h-8 rounded-full shadow-lg',
+              'bg-card border border-border/50',
+              'flex items-center justify-center',
+              'hover:bg-muted transition-colors cursor-pointer',
+            )}
+          >
+            <ChevronDown size={16} className="text-muted-foreground" />
+          </motion.button>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

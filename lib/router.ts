@@ -24,11 +24,11 @@ export function shouldEscalateByKeyword(query: string): boolean {
 // These should ALWAYS go to TinyChat, even if they match complexity patterns.
 const SELF_REFERENTIAL_PATTERN = /\b(tinychat|tinybrain|tiny chat|tiny brain|jonathan avni|avni|your (name|creator|parameters?|model|training|architecture|size|weights?)|who (made|built|created|trained) you|about yourself|tell me about you|what are you|who are you|how many parameters|how big are you)\b/i;
 
-// Math: equations, arithmetic operators between numbers, math keywords
-const MATH_PATTERN = /\d+\s*[×x*\/÷+\-^%]\s*\d+|\b(calculate|compute|solve|equation|integral|derivative|factorial|sqrt|logarithm|algebra|geometry|trigonometry|probability|statistics)\b/i;
+// Math: equations, arithmetic operators between numbers, math keywords, number words
+const MATH_PATTERN = /\d+\s*[×x*\/÷+\-^%]\s*\d+|\b(calculate|compute|solve|equation|integral|derivative|factorial|sqrt|logarithm|algebra|geometry|trigonometry|probability|statistics|math|arithmetic|multiply|divide|subtract|add|sum|average|mean|median|percentage|percent|formula|theorem|proof|matrix|vector|linear|quadratic|polynomial|exponent|fraction|ratio|proportion|pi|sine|cosine|tangent)\b/i;
 
-// Code: programming keywords, code blocks, syntax patterns
-const CODE_PATTERN = /```|\b(function|class|import|export|const|let|var|def|return|async|await|console\.log|print\(|for\s*\(|while\s*\(|if\s*\(|=>|interface|type\s+\w+\s*=)\b/i;
+// Code: programming languages, code-related terms, syntax patterns, code blocks
+const CODE_PATTERN = /```|\b(python|javascript|typescript|java|rust|golang|ruby|swift|kotlin|scala|perl|php|html|css|sql|bash|shell|c\+\+|csharp|code|program|script|algorithm|debug|compile|syntax|api|regex|function|class|import|export|const|let|var|def|return|async|await|console\.log|print\(|for\s*\(|while\s*\(|if\s*\(|=>|interface|type\s+\w+\s*=)\b/i;
 
 // Factual: questions about real-world knowledge TinyChat doesn't have
 const FACTUAL_PATTERN = /\b(who is|who was|what is the capital|when did|where is|how many|how much|what year|in what year|population of|president of|founded in|invented|discovered|history of|explain how|how does .+ work)\b/i;

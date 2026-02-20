@@ -131,9 +131,14 @@ export function SessionReceipt({
                     <Check className="h-4 w-4" />
                     <span>Settled on Base</span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1 font-mono break-all">
+                  <a
+                    href={`https://basescan.org/tx/${settlementTx}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs text-muted-foreground hover:text-foreground mt-1 font-mono break-all block underline decoration-muted-foreground/30 hover:decoration-foreground/50 transition-colors"
+                  >
                     {settlementTx}
-                  </p>
+                  </a>
                 </motion.div>
               )}
             </div>

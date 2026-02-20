@@ -3,15 +3,17 @@
 import { useState, KeyboardEvent, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { Send } from 'lucide-react';
+import { Send, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface MessageInputProps {
   onSend: (message: string) => void;
   disabled?: boolean;
+  isLoading?: boolean;
+  onStop?: () => void;
 }
 
-export function MessageInput({ onSend, disabled }: MessageInputProps) {
+export function MessageInput({ onSend, disabled, isLoading, onStop }: MessageInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -59,19 +61,29 @@ export function MessageInput({ onSend, disabled }: MessageInputProps) {
           rows={1}
           className="flex-1 min-h-[44px] max-h-[150px] resize-none py-3 px-4 rounded-xl"
         />
-        <Button
-          onClick={handleSend}
-          disabled={disabled || !input.trim()}
-          size="icon"
-          className={cn(
-            'h-11 w-11 rounded-xl transition-all',
-            input.trim() && !disabled
-              ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white'
-              : ''
-          )}
-        >
-          <Send className="h-4 w-4" />
-        </Button>
+        {isLoading ? (
+          <Button
+            onClick={onStop}
+            size="icon"
+            className="h-11 w-11 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 transition-all"
+          >
+            <Square className="h-4 w-4" />
+          </Button>
+        ) : (
+          <Button
+            onClick={handleSend}
+            disabled={disabled || !input.trim()}
+            size="icon"
+            className={cn(
+              'h-11 w-11 rounded-xl transition-all',
+              input.trim() && !disabled
+                ? 'bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white'
+                : ''
+            )}
+          >
+            <Send className="h-4 w-4" />
+          </Button>
+        )}
       </div>
     </div>
   );

@@ -131,13 +131,14 @@ Queries containing these keywords skip TinyChat entirely and route directly to B
 Rule-based heuristics detect queries that TinyChat (561M params) will likely hallucinate on. Checked after keywords, before starting TinyChat. Matching queries route directly to BlockRun DeepSeek R1.
 
 Categories detected:
-- **Math**: arithmetic (`42 * 42`), math keywords (calculate, integral, probability, etc.)
-- **Code**: programming keywords (function, class, import, etc.), code blocks
+- **Math**: arithmetic (`42 * 42`), math keywords (calculate, solve, factorial, theorem, etc.), operations (multiply, divide, sum, average), advanced (matrix, vector, polynomial, exponent)
+- **Code**: programming language names (python, javascript, rust, etc.), code terms (code, program, algorithm, debug, api, regex), syntax keywords (function, class, def, etc.), code blocks
 - **Factual**: real-world knowledge questions (who is, what is the capital, when did, etc.)
 - **Reasoning**: multi-step logic (compare, analyze, pros and cons, step by step, etc.)
 - **Multi-part**: numbered lists, multiple questions in one query
 - **Translation**: translate requests, foreign language references
 - **Long queries**: >200 characters (more likely to be complex)
+- **Self-referential bypass**: questions about TinyChat itself (creator, parameters, identity) always stay on TinyChat
 
 **Note**: TinyChat still emits perplexity as the first SSE event, but it is no longer used for routing decisions. Perplexity was unreliable — the model confidently hallucinates on complex queries (all values 2-18, never triggering the threshold).
 

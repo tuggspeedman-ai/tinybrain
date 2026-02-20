@@ -49,6 +49,8 @@ export function ChatInterface() {
   const fetchWithPaymentRef = useRef<((input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) | null>(null);
   // Wallet client ref (for session signing)
   const walletClientRef = useRef<ReturnType<typeof createWalletClient> | null>(null);
+  // Abort controller for stopping generation
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -236,9 +238,22 @@ export function ChatInterface() {
     setIsPaying(false);
   }, []);
 
+  // --- Stop generation ---
+
+  const handleStop = useCallback(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setIsLoading(false);
+  }, []);
+
   // --- Dual send path ---
 
   const sendMessage = useCallback(async (content: string) => {
+    // Abort any in-flight request
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+
     const userMessage: Message = {
       id: crypto.randomUUID(),
       role: 'user',
@@ -271,6 +286,7 @@ export function ChatInterface() {
             'X-SESSION-TOKEN': session.sessionToken,
           },
           body: JSON.stringify({ messages: apiMessages }),
+          signal: abortController.signal,
         });
       } else {
         // Per-request mode: x402 payment-wrapped fetch
@@ -283,6 +299,7 @@ export function ChatInterface() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ messages: apiMessages }),
+          signal: abortController.signal,
         });
       }
 
@@ -359,6 +376,9 @@ export function ChatInterface() {
         }
       }
     } catch (error) {
+      // Silently handle user-initiated abort
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+
       console.error('Chat error:', error);
       setMessages((prev) => [
         ...prev.filter((m) => m.id !== assistantMessage.id),
@@ -369,6 +389,7 @@ export function ChatInterface() {
         },
       ]);
     } finally {
+      abortControllerRef.current = null;
       setIsLoading(false);
     }
   }, [messages, isConnected, paymentMode, session]);
@@ -384,21 +405,13 @@ export function ChatInterface() {
       <Card className="flex flex-col h-[calc(100vh-12rem)] min-h-[400px] max-h-[800px] w-full max-w-3xl mx-auto overflow-hidden shadow-lg">
         {/* Header */}
         <div className="border-b p-4 bg-card">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-xl font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                TinyBrain
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                Powered by TinyChat, a locally-trained AI model
-              </p>
-            </div>
-            {paymentMode === 'per-request' && (
+          {paymentMode === 'per-request' && (
+            <div className="flex justify-end">
               <span className="text-xs bg-gradient-to-r from-blue-500/10 to-purple-500/10 text-blue-600 dark:text-blue-400 px-3 py-1.5 rounded-full font-medium border border-blue-500/20">
                 $0.01 / query
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Session bar (tab mode) */}
           {paymentMode === 'tab' && session && (
@@ -460,7 +473,7 @@ export function ChatInterface() {
               transition={{ duration: 0.2 }}
               className="flex-1 flex flex-col min-h-0"
             >
-              <MessageList messages={messages} isLoading={isLoading} />
+              <MessageList messages={messages} isLoading={isLoading} onSend={sendMessage} />
             </motion.div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
@@ -472,7 +485,7 @@ export function ChatInterface() {
         </AnimatePresence>
 
         {/* Input */}
-        <MessageInput onSend={sendMessage} disabled={inputDisabled} />
+        <MessageInput onSend={sendMessage} disabled={inputDisabled} isLoading={isLoading} onStop={handleStop} />
       </Card>
 
       {/* Receipt modal (outside card for fixed positioning) */}
