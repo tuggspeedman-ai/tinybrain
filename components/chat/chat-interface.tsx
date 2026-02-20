@@ -14,6 +14,7 @@ import { PaymentModeSelector } from './payment-mode-selector';
 import { SessionBar } from './session-bar';
 import { SessionReceipt, type ReceiptData } from './session-receipt';
 import { buildAuthorization, signAuthorization } from '@/lib/session-signing';
+import { saveSession, loadSession, clearSession } from '@/lib/session-storage';
 import { Card } from '@/components/ui/card';
 
 type PaymentMode = 'select' | 'per-request' | 'tab';
@@ -83,16 +84,50 @@ export function ChatInterface() {
     fetchWithPaymentRef.current = wrapFetchWithPayment(fetch, client);
   }, [isConnected, address]);
 
-  // Reset payment mode when wallet disconnects
+  // Reset UI (but not localStorage) when wallet disconnects
   useEffect(() => {
     if (!isConnected) {
       setPaymentMode('select');
       setSession(null);
+      setMessages([]);
       setShowReceipt(false);
       setSettlementTx(null);
       setReceiptData(null);
     }
   }, [isConnected]);
+
+  // Restore session from localStorage when wallet connects
+  useEffect(() => {
+    if (!mounted || !isConnected || !address) return;
+    // Don't restore if already in an active session or payment mode
+    if (paymentMode !== 'select') return;
+
+    const stored = loadSession(address);
+    if (stored) {
+      setSession({
+        sessionToken: stored.sessionToken,
+        depositCents: stored.depositCents,
+        queryCount: stored.queryCount,
+        totalCostCents: stored.totalCostCents,
+        createdAt: stored.createdAt,
+      });
+      setMessages(stored.messages);
+      setPaymentMode('tab');
+    }
+  }, [mounted, isConnected, address, paymentMode]);
+
+  // Persist session + messages to localStorage on every change
+  useEffect(() => {
+    if (!address || !session || paymentMode !== 'tab') return;
+    saveSession(address, {
+      sessionToken: session.sessionToken,
+      depositCents: session.depositCents,
+      queryCount: session.queryCount,
+      totalCostCents: session.totalCostCents,
+      createdAt: session.createdAt,
+      messages,
+    });
+  }, [address, session, messages, paymentMode]);
 
   // --- Tab lifecycle ---
 
@@ -229,6 +264,7 @@ export function ChatInterface() {
   }, [session, address, receiptData]);
 
   const handleReceiptClose = useCallback(() => {
+    if (address) clearSession(address);
     setShowReceipt(false);
     setSettlementTx(null);
     setReceiptData(null);
@@ -236,7 +272,7 @@ export function ChatInterface() {
     setPaymentMode('select');
     setMessages([]);
     setIsPaying(false);
-  }, []);
+  }, [address]);
 
   // --- Stop generation ---
 
