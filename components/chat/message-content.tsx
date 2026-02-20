@@ -2,6 +2,8 @@
 
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { ThinkBlock } from './think-block';
@@ -28,7 +30,8 @@ export function MessageContent({ content }: MessageContentProps) {
       {thinking && <ThinkBlock content={thinking} />}
       <div className="chat-markdown">
         <ReactMarkdown
-          remarkPlugins={[remarkGfm]}
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
           components={{
             code({ className, children, ...props }) {
               const match = /language-(\w+)/.exec(className || '');
