@@ -18,7 +18,7 @@ export default function Home() {
             >
               TinyChat
             </a>
-            {' '}&mdash; x402-powered AI inference
+            , a 561M-param model trained from scratch. It will confidently hallucinate&mdash;that&rsquo;s part of the fun.
           </p>
         </div>
         <div className="flex items-center gap-2">

@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { MessageContent } from './message-content';
-import { Brain, Rocket, Bot, User, DollarSign, ChevronDown, Sparkles } from 'lucide-react';
+import { Brain, Rocket, Bot, User, DollarSign, ChevronDown } from 'lucide-react';
 
 export interface Message {
   id: string;
@@ -15,44 +15,16 @@ export interface Message {
   queryCost?: number; // cents, shown as badge in session mode
 }
 
-const STARTER_PROMPTS = [
-  "What's your name?",
-  "Tell me a joke",
-  "Who created you?",
-  "How many parameters do you have?",
-  "What can you help me with?",
-  "Say something funny",
-  "What's your favorite color?",
-  "Tell me about yourself",
-  "What are you good at?",
-  "Do you dream?",
-  "What's the meaning of life?",
-  "Are you sentient?",
-  "What makes you different from other AIs?",
-  "Give me a fun fact",
-  "What's your favorite word?",
-  "How were you trained?",
-];
-
-function shuffleAndPick<T>(arr: T[], count: number): T[] {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
-}
-
 interface MessageListProps {
   messages: Message[];
   isLoading?: boolean;
-  onSend?: (message: string) => void;
 }
 
-export function MessageList({ messages, isLoading, onSend }: MessageListProps) {
+export function MessageList({ messages, isLoading }: MessageListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const isNearBottomRef = useRef(true);
   const [showScrollButton, setShowScrollButton] = useState(false);
-
-  // Pick 4 random starter prompts on mount
-  const starters = useMemo(() => shuffleAndPick(STARTER_PROMPTS, 4), []);
 
   // Track whether user has scrolled away from the bottom
   const handleScroll = useCallback(() => {
@@ -78,29 +50,9 @@ export function MessageList({ messages, isLoading, onSend }: MessageListProps) {
   if (messages.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-2">
           <Bot className="h-12 w-12 mx-auto text-muted-foreground/50" />
           <p>Send a message to start chatting with TinyBrain</p>
-          {onSend && (
-            <div className="flex flex-wrap justify-center gap-2 max-w-md mx-auto">
-              {starters.map((prompt) => (
-                <button
-                  key={prompt}
-                  onClick={() => onSend(prompt)}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full',
-                    'border border-border/50 bg-card/50',
-                    'hover:border-blue-500/50 hover:bg-blue-500/5',
-                    'transition-all duration-200 cursor-pointer',
-                    'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  <Sparkles size={12} />
-                  {prompt}
-                </button>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );

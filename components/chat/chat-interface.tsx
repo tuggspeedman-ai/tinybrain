@@ -509,7 +509,7 @@ export function ChatInterface() {
               transition={{ duration: 0.2 }}
               className="flex-1 flex flex-col min-h-0"
             >
-              <MessageList messages={messages} isLoading={isLoading} onSend={sendMessage} />
+              <MessageList messages={messages} isLoading={isLoading} />
             </motion.div>
           ) : (
             <div className="flex-1 flex items-center justify-center text-muted-foreground p-8">
