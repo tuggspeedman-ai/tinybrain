@@ -11,8 +11,7 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   model?: 'tinychat' | 'blockrun';
-  escalationReason?: 'keyword' | 'perplexity' | 'none';
-  perplexity?: number;
+  escalationReason?: 'keyword' | 'complexity' | 'none';
   queryCost?: number; // cents, shown as badge in session mode
 }
 
@@ -92,20 +91,12 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
                   {message.model === 'blockrun' ? (
                     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-orange-500/10 text-orange-600 dark:text-orange-400">
                       <Rocket size={12} />
-                      <span>
-                        Answered by DeepSeek R1
-                        {message.escalationReason === 'perplexity' && message.perplexity != null
-                          ? ` — TinyChat was unsure (perplexity: ${message.perplexity})`
-                          : ''}
-                      </span>
+                      <span>Answered by DeepSeek R1</span>
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
                       <Brain size={12} />
-                      <span>
-                        TinyChat
-                        {message.perplexity != null ? ` (perplexity: ${message.perplexity})` : ''}
-                      </span>
+                      <span>TinyChat</span>
                     </span>
                   )}
                   {message.queryCost != null && (

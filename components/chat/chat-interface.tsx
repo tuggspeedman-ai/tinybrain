@@ -332,7 +332,6 @@ export function ChatInterface() {
                         content: m.content + (parsed.content || ''),
                         model: m.model || parsed.model,
                         escalationReason: m.escalationReason || parsed.escalationReason,
-                        perplexity: m.perplexity ?? parsed.perplexity,
                         queryCost: m.queryCost ?? parsed.queryCost,
                       }
                     : m

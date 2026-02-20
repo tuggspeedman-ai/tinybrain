@@ -9,25 +9,47 @@ const ESCALATION_KEYWORDS = [
   'deep thinking',
 ];
 
-// Perplexity threshold for automatic escalation
-// Queries with perplexity above this value are routed to BlockRun
-// Start conservative (~80), tune empirically based on calibration data
-export const PERPLEXITY_THRESHOLD = 80;
-
-export type EscalationReason = 'keyword' | 'perplexity' | 'none';
+export type EscalationReason = 'keyword' | 'complexity' | 'none';
 
 export function shouldEscalateByKeyword(query: string): boolean {
   const lowerQuery = query.toLowerCase();
   return ESCALATION_KEYWORDS.some(keyword => lowerQuery.includes(keyword));
 }
 
-export function shouldEscalateByPerplexity(perplexity: number): boolean {
-  return perplexity > PERPLEXITY_THRESHOLD;
-}
+// --- Rule-based query complexity classification ---
+// Detects queries that a 561M-param model will likely hallucinate on.
+// Runs before TinyChat to avoid wasting a round-trip.
 
-// Keep backward-compatible export
-export function shouldEscalate(query: string): boolean {
-  return shouldEscalateByKeyword(query);
+// Math: equations, arithmetic operators between numbers, math keywords
+const MATH_PATTERN = /\d+\s*[×x*\/÷+\-^%]\s*\d+|\b(calculate|compute|solve|equation|integral|derivative|factorial|sqrt|logarithm|algebra|geometry|trigonometry|probability|statistics)\b/i;
+
+// Code: programming keywords, code blocks, syntax patterns
+const CODE_PATTERN = /```|\b(function|class|import|export|const|let|var|def|return|async|await|console\.log|print\(|for\s*\(|while\s*\(|if\s*\(|=>|interface|type\s+\w+\s*=)\b/i;
+
+// Factual: questions about real-world knowledge TinyChat doesn't have
+const FACTUAL_PATTERN = /\b(who is|who was|what is the capital|when did|where is|how many|how much|what year|in what year|population of|president of|founded in|invented|discovered|history of|explain how|how does .+ work)\b/i;
+
+// Reasoning: multi-step logic, comparisons, analysis
+const REASONING_PATTERN = /\b(compare|contrast|analyze|evaluate|pros and cons|advantages|disadvantages|step by step|explain why|what would happen|if .+ then|implications|trade-?offs|differences? between)\b/i;
+
+// Multi-part: numbered lists, multiple questions in one query
+const MULTIPART_PATTERN = /(\d+\.\s+.+\n\d+\.\s+)|(^.+\?\s+.+\?)/m;
+
+// Translation / foreign language requests
+const TRANSLATION_PATTERN = /\b(translate|translation|in (spanish|french|german|chinese|japanese|korean|arabic|russian|portuguese|italian|hindi|esperanto|latin))\b/i;
+
+// Long queries (>200 chars) are more likely to be complex
+const LONG_QUERY_THRESHOLD = 200;
+
+export function shouldEscalateByComplexity(query: string): boolean {
+  if (MATH_PATTERN.test(query)) return true;
+  if (CODE_PATTERN.test(query)) return true;
+  if (FACTUAL_PATTERN.test(query)) return true;
+  if (REASONING_PATTERN.test(query)) return true;
+  if (MULTIPART_PATTERN.test(query)) return true;
+  if (TRANSLATION_PATTERN.test(query)) return true;
+  if (query.length > LONG_QUERY_THRESHOLD) return true;
+  return false;
 }
 
 // Escalation providers for advanced queries

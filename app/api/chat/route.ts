@@ -2,11 +2,10 @@ import { NextRequest } from 'next/server';
 import { withX402Streaming } from '@/lib/x402-streaming';
 import { streamChat, type ChatMessage } from '@/lib/tinychat-client';
 import { streamDaydreams } from '@/lib/daydreams-client';
-import { streamBlockRun, callBlockRun } from '@/lib/blockrun-client';
+import { callBlockRun } from '@/lib/blockrun-client';
 import {
   shouldEscalateByKeyword,
-  shouldEscalateByPerplexity,
-  PERPLEXITY_THRESHOLD,
+  shouldEscalateByComplexity,
   DEFAULT_ESCALATION_PROVIDER,
   type ModelType,
   type EscalationReason,
@@ -45,7 +44,6 @@ async function handler(request: NextRequest) {
       const escalationReason: EscalationReason = 'keyword';
 
       if (model === 'blockrun') {
-        // Call BlockRun eagerly so logs appear at handler level (Vercel captures them)
         const blockRunResult = await callBlockRun(messages);
         const streamSource = (async function* () {
           if (blockRunResult.reasoningContent) {
@@ -56,14 +54,37 @@ async function handler(request: NextRequest) {
           }
           yield { content: '', done: true };
         })();
-        return createStreamResponse(streamSource, model, escalationReason, undefined, sessionToken ?? undefined);
+        return createStreamResponse(streamSource, model, escalationReason, sessionToken ?? undefined);
       }
-      return createStreamResponse(streamDaydreams(messages), model, escalationReason, undefined, sessionToken ?? undefined);
+      return createStreamResponse(streamDaydreams(messages), model, escalationReason, sessionToken ?? undefined);
     }
 
-    // Phase 2: Two-phase perplexity routing
-    // Start TinyChat stream, read perplexity from first event, decide whether to continue or escalate
-    console.log(`[Router] Starting TinyChat stream for perplexity check...`);
+    // Phase 2: Rule-based complexity check
+    // Detects math, code, factual, reasoning, translation queries that TinyChat can't handle
+    const complexityEscalation = shouldEscalateByComplexity(lastUserMessage);
+    if (complexityEscalation) {
+      console.log(`[Router] Complexity escalation triggered for: "${lastUserMessage.slice(0, 50)}..."`);
+      const model: ModelType = DEFAULT_ESCALATION_PROVIDER;
+      const escalationReason: EscalationReason = 'complexity';
+
+      if (model === 'blockrun') {
+        const blockRunResult = await callBlockRun(messages);
+        const streamSource = (async function* () {
+          if (blockRunResult.reasoningContent) {
+            yield { content: `<think>${blockRunResult.reasoningContent}</think>`, done: false };
+          }
+          if (blockRunResult.content) {
+            yield { content: blockRunResult.content, done: false };
+          }
+          yield { content: '', done: true };
+        })();
+        return createStreamResponse(streamSource, model, escalationReason, sessionToken ?? undefined);
+      }
+      return createStreamResponse(streamDaydreams(messages), model, escalationReason, sessionToken ?? undefined);
+    }
+
+    // No escalation needed — stream from TinyChat directly
+    console.log(`[Router] Routing to TinyChat (no escalation triggers)`);
     const tinychatStream = streamChat({ messages });
 
     const encoder = new TextEncoder();
@@ -71,32 +92,16 @@ async function handler(request: NextRequest) {
     const stream = new ReadableStream({
       async start(controller) {
         try {
-          let model: ModelType = 'tinychat';
-          let escalationReason: EscalationReason = 'none';
-          let perplexityValue: number | undefined;
-          let escalated = false;
+          const model: ModelType = 'tinychat';
+          const escalationReason: EscalationReason = 'none';
 
           for await (const chunk of tinychatStream) {
-            // Check for perplexity event (first SSE event from TinyChat)
-            if (chunk.perplexity !== undefined) {
-              perplexityValue = chunk.perplexity;
-              console.log(`[Router] TinyChat perplexity: ${perplexityValue} (threshold: ${PERPLEXITY_THRESHOLD})`);
-
-              if (shouldEscalateByPerplexity(perplexityValue)) {
-                // Perplexity too high — abort TinyChat, switch to BlockRun
-                console.log(`[Router] Perplexity escalation: ${perplexityValue} > ${PERPLEXITY_THRESHOLD}`);
-                model = DEFAULT_ESCALATION_PROVIDER;
-                escalationReason = 'perplexity';
-                escalated = true;
-                break; // Exit TinyChat stream loop
-              }
-              // Perplexity OK — continue streaming from TinyChat
-              continue;
-            }
+            // Skip perplexity event (still emitted by TinyChat engine, just not used for routing)
+            if (chunk.perplexity !== undefined) continue;
 
             if (chunk.done) {
               const doneData = JSON.stringify({
-                content: '', model, escalationReason, perplexity: perplexityValue,
+                content: '', model, escalationReason,
                 ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
               });
               controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
@@ -105,38 +110,11 @@ async function handler(request: NextRequest) {
               return;
             }
 
-            // Forward TinyChat content to client
             const data = JSON.stringify({
-              content: chunk.content, model, escalationReason, perplexity: perplexityValue,
+              content: chunk.content, model, escalationReason,
               ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
             });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-          }
-
-          if (escalated) {
-            // Stream from BlockRun instead
-            const blockRunStream = model === 'blockrun'
-              ? streamBlockRun(messages)
-              : streamDaydreams(messages);
-
-            for await (const chunk of blockRunStream) {
-              if (chunk.done) {
-                const doneData = JSON.stringify({
-                  content: '', model, escalationReason, perplexity: perplexityValue,
-                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
-                });
-                controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
-                controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
-                controller.close();
-                return;
-              }
-
-              const data = JSON.stringify({
-                content: chunk.content, model, escalationReason, perplexity: perplexityValue,
-                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
-              });
-              controller.enqueue(encoder.encode(`data: ${data}\n\n`));
-            }
           }
 
           // Fallback close if stream ended without done signal
@@ -172,7 +150,6 @@ function createStreamResponse(
   streamSource: AsyncGenerator<{ content: string; done: boolean }>,
   model: ModelType,
   escalationReason: EscalationReason,
-  perplexity?: number,
   sessionToken?: string,
 ) {
   const encoder = new TextEncoder();
