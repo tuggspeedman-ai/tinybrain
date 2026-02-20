@@ -1,7 +1,8 @@
 import { NextRequest } from 'next/server';
 import { verifyTypedData } from 'viem';
 import { authorizationTypes } from '@x402/evm';
-import { sessionStore, type DepositAuth } from '@/lib/session-store';
+import type { DepositAuth } from '@/lib/session-store';
+import { createSessionToken } from '@/lib/session-token';
 import {
   SESSION_PRICING,
   USDC_EIP712_DOMAIN,
@@ -64,15 +65,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check for existing active session
-    const existing = sessionStore.getSessionByWallet(walletAddress as `0x${string}`);
-    if (existing) {
-      return Response.json(
-        { error: 'An active session already exists for this wallet. Close it first.' },
-        { status: 409 },
-      );
-    }
-
     // Verify EIP-3009 signature
     const isValid = await verifyTypedData({
       address: authorization.from as `0x${string}`,
@@ -97,18 +89,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Create session
-    const session = sessionStore.createSession(
-      walletAddress as `0x${string}`,
-      depositAuth,
-      depositCents,
-    );
+    // Create stateless signed session token (no server-side state needed)
+    const sessionToken = createSessionToken(walletAddress, depositCents);
+
+    console.log(`[Session Open] Created token for ${walletAddress} (deposit: ${depositCents}¢)`);
 
     return Response.json({
-      sessionId: session.id,
-      sessionToken: session.token,
-      depositCents: session.depositAmount,
-      maxQueries: Math.floor(session.depositAmount / SESSION_PRICING.QUERY_COST_CENTS),
+      sessionToken,
+      depositCents,
+      maxQueries: Math.floor(depositCents / SESSION_PRICING.QUERY_COST_CENTS),
     });
   } catch (error) {
     console.error('[Session Open] Error:', error);

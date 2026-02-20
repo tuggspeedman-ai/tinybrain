@@ -301,6 +301,7 @@ export function ChatInterface() {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let sessionIncremented = false; // Track whether we've counted this query
 
       while (true) {
         const { done, value } = await reader.read();
@@ -339,17 +340,16 @@ export function ChatInterface() {
               );
             }
 
-            // Update session usage from SSE metadata
-            if (parsed.sessionUsage != null) {
-              const usage = typeof parsed.sessionUsage === 'object'
-                ? parsed.sessionUsage
-                : { queryCount: undefined, totalCostCents: parsed.sessionUsage };
+            // Client-side session usage tracking (stateless server — no sessionUsage in SSE)
+            if (parsed.queryCost != null && !sessionIncremented && paymentMode === 'tab') {
+              sessionIncremented = true;
+              const cost = parsed.queryCost;
               setSession((prev) =>
                 prev
                   ? {
                       ...prev,
-                      queryCount: usage.queryCount ?? prev.queryCount,
-                      totalCostCents: usage.totalCostCents ?? prev.totalCostCents,
+                      queryCount: prev.queryCount + 1,
+                      totalCostCents: prev.totalCostCents + cost,
                     }
                   : prev
               );

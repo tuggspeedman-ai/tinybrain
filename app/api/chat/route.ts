@@ -11,17 +11,10 @@ import {
   type ModelType,
   type EscalationReason,
 } from '@/lib/router';
-import { sessionStore } from '@/lib/session-store';
+import { verifySessionToken } from '@/lib/session-token';
 import { SESSION_PRICING } from '@/lib/session-pricing';
 
 export const runtime = 'nodejs';
-
-/** Build sessionUsage object for SSE metadata */
-function getSessionUsage(token: string) {
-  const s = sessionStore.getSessionByToken(token);
-  if (!s) return undefined;
-  return { queryCount: s.usage.length, totalCostCents: s.totalCostCents };
-}
 
 const TREASURY_ADDRESS = process.env.TREASURY_ADDRESS as `0x${string}`;
 
@@ -40,7 +33,6 @@ async function handler(request: NextRequest) {
 
     // Session mode: check for session token (bar tab)
     const sessionToken = request.headers.get('x-session-token');
-    let session = sessionToken ? sessionStore.getSessionByToken(sessionToken) : undefined;
 
     // Phase 1: Check keyword escalation (checked first, acts as override)
     const lastUserMessage = messages.findLast(m => m.role === 'user')?.content || '';
@@ -51,16 +43,6 @@ async function handler(request: NextRequest) {
       console.log(`[Router] Keyword escalation triggered for: "${lastUserMessage.slice(0, 50)}..."`);
       const model: ModelType = DEFAULT_ESCALATION_PROVIDER;
       const escalationReason: EscalationReason = 'keyword';
-
-      // Track usage in session mode
-      if (sessionToken && session) {
-        sessionStore.addUsage(sessionToken, {
-          model,
-          cost: SESSION_PRICING.QUERY_COST_CENTS,
-          escalationReason,
-        });
-        session = sessionStore.getSessionByToken(sessionToken);
-      }
 
       if (model === 'blockrun') {
         // Call BlockRun eagerly so logs appear at handler level (Vercel captures them)
@@ -93,7 +75,6 @@ async function handler(request: NextRequest) {
           let escalationReason: EscalationReason = 'none';
           let perplexityValue: number | undefined;
           let escalated = false;
-          let usageTracked = false;
 
           for await (const chunk of tinychatStream) {
             // Check for perplexity event (first SSE event from TinyChat)
@@ -107,37 +88,16 @@ async function handler(request: NextRequest) {
                 model = DEFAULT_ESCALATION_PROVIDER;
                 escalationReason = 'perplexity';
                 escalated = true;
-
-                // Track usage in session mode (escalated to BlockRun)
-                if (capturedSessionToken && !usageTracked) {
-                  sessionStore.addUsage(capturedSessionToken, {
-                    model,
-                    cost: SESSION_PRICING.QUERY_COST_CENTS,
-                    escalationReason,
-                  });
-                  usageTracked = true;
-                }
-
                 break; // Exit TinyChat stream loop
               }
               // Perplexity OK — continue streaming from TinyChat
               continue;
             }
 
-            // Track usage on first content chunk (TinyChat happy path)
-            if (!usageTracked && chunk.content && capturedSessionToken) {
-              sessionStore.addUsage(capturedSessionToken, {
-                model: 'tinychat',
-                cost: SESSION_PRICING.QUERY_COST_CENTS,
-                escalationReason: 'none',
-              });
-              usageTracked = true;
-            }
-
             if (chunk.done) {
               const doneData = JSON.stringify({
                 content: '', model, escalationReason, perplexity: perplexityValue,
-                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
               });
               controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
               controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -148,7 +108,7 @@ async function handler(request: NextRequest) {
             // Forward TinyChat content to client
             const data = JSON.stringify({
               content: chunk.content, model, escalationReason, perplexity: perplexityValue,
-              ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
+              ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
             });
             controller.enqueue(encoder.encode(`data: ${data}\n\n`));
           }
@@ -163,7 +123,7 @@ async function handler(request: NextRequest) {
               if (chunk.done) {
                 const doneData = JSON.stringify({
                   content: '', model, escalationReason, perplexity: perplexityValue,
-                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
+                  ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
                 });
                 controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
                 controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -173,7 +133,7 @@ async function handler(request: NextRequest) {
 
               const data = JSON.stringify({
                 content: chunk.content, model, escalationReason, perplexity: perplexityValue,
-                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(capturedSessionToken) } : {}),
+                ...(capturedSessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
               });
               controller.enqueue(encoder.encode(`data: ${data}\n\n`));
             }
@@ -223,7 +183,7 @@ function createStreamResponse(
           if (chunk.done) {
             const doneData = JSON.stringify({
               content: '', model, escalationReason,
-              ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(sessionToken) } : {}),
+              ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
             });
             controller.enqueue(encoder.encode(`data: ${doneData}\n\n`));
             controller.enqueue(encoder.encode(`data: [DONE]\n\n`));
@@ -233,7 +193,7 @@ function createStreamResponse(
 
           const data = JSON.stringify({
             content: chunk.content, model, escalationReason,
-            ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS, sessionUsage: getSessionUsage(sessionToken) } : {}),
+            ...(sessionToken ? { queryCost: SESSION_PRICING.QUERY_COST_CENTS } : {}),
           });
           controller.enqueue(encoder.encode(`data: ${data}\n\n`));
         }
@@ -272,22 +232,18 @@ export const POST = withX402Streaming(
   },
   (httpServer) => {
     // Register session bypass hook: requests with valid X-SESSION-TOKEN
-    // skip x402 payment and are served from the session's deposit
+    // skip x402 payment (token is HMAC-signed, no server state needed)
     httpServer.onProtectedRequest(async (context) => {
       const sessionToken = context.adapter.getHeader('x-session-token');
       if (!sessionToken) return; // No session token — continue to x402 payment flow
 
-      const session = sessionStore.getSessionByToken(sessionToken);
-      if (!session || session.status !== 'active') {
+      const tokenData = verifySessionToken(sessionToken);
+      if (!tokenData) {
         return { abort: true, reason: 'Invalid or expired session' };
       }
 
-      if (!sessionStore.hasAvailableBalance(sessionToken)) {
-        return { abort: true, reason: 'Session deposit exhausted' };
-      }
-
-      // Valid session with available balance — grant access without x402 payment
-      console.log(`[Session] Granting access for session ${session.id} (${session.totalCostCents}¢ / ${session.depositAmount}¢)`);
+      // Valid signed token — grant access without x402 payment
+      console.log(`[Session] Granting access for ${tokenData.walletAddress} (deposit: ${tokenData.depositCents}¢)`);
       return { grantAccess: true };
     });
   },

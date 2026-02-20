@@ -1,13 +1,10 @@
 import { NextRequest } from 'next/server';
 import { verifyTypedData } from 'viem';
 import { authorizationTypes, eip3009ABI } from '@x402/evm';
-import { sessionStore, type DepositAuth } from '@/lib/session-store';
+import type { DepositAuth } from '@/lib/session-store';
+import { verifySessionToken } from '@/lib/session-token';
 import { treasuryWallet, publicClient } from '@/lib/treasury';
-import {
-  USDC_ADDRESS,
-  USDC_EIP712_DOMAIN,
-  centsToUsdcBaseUnits,
-} from '@/lib/session-pricing';
+import { USDC_ADDRESS, USDC_EIP712_DOMAIN } from '@/lib/session-pricing';
 
 export const runtime = 'nodejs';
 
@@ -25,49 +22,16 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'sessionToken is required' }, { status: 400 });
     }
 
-    // Look up session
-    const session = sessionStore.getSessionByToken(sessionToken);
-    if (!session) {
-      return Response.json({ error: 'Session not found' }, { status: 404 });
-    }
-    if (session.status !== 'active') {
-      return Response.json(
-        { error: `Session is already ${session.status}` },
-        { status: 409 },
-      );
+    // Verify the signed session token (stateless — no database lookup)
+    const tokenData = verifySessionToken(sessionToken);
+    if (!tokenData) {
+      return Response.json({ error: 'Invalid or expired session token' }, { status: 401 });
     }
 
-    const { totalCostCents } = session;
     let settlementTx: string | null = null;
 
-    if (totalCostCents > 0) {
-      // Require settlement auth for non-zero usage
-      if (!settlementAuth?.authorization || !settlementAuth?.signature) {
-        return Response.json(
-          {
-            error: 'settlementAuth required for non-zero usage',
-            totalCostCents,
-            expectedValueBaseUnits: centsToUsdcBaseUnits(totalCostCents),
-          },
-          { status: 400 },
-        );
-      }
-
+    if (settlementAuth?.authorization && settlementAuth?.signature) {
       const { authorization } = settlementAuth;
-
-      // Validate settlement amount matches tracked usage
-      const expectedBaseUnits = centsToUsdcBaseUnits(totalCostCents);
-      if (authorization.value !== expectedBaseUnits) {
-        return Response.json(
-          {
-            error: 'Settlement amount does not match tracked usage',
-            expectedValueBaseUnits: expectedBaseUnits,
-            providedValueBaseUnits: authorization.value,
-            totalCostCents,
-          },
-          { status: 400 },
-        );
-      }
 
       // Validate recipient is treasury
       if (authorization.to.toLowerCase() !== TREASURY_ADDRESS) {
@@ -78,7 +42,7 @@ export async function POST(request: NextRequest) {
       }
 
       // Validate signer matches session wallet
-      if (authorization.from.toLowerCase() !== session.walletAddress.toLowerCase()) {
+      if (authorization.from.toLowerCase() !== tokenData.walletAddress.toLowerCase()) {
         return Response.json(
           { error: 'Settlement signer must match session wallet' },
           { status: 400 },
@@ -109,7 +73,7 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      // Submit settlement auth on-chain (bytes signature overload)
+      // Submit settlement auth on-chain
       const txHash = await treasuryWallet.writeContract({
         address: USDC_ADDRESS,
         abi: eip3009ABI,
@@ -134,27 +98,12 @@ export async function POST(request: NextRequest) {
       }
 
       settlementTx = txHash;
-      console.log(`[Session Close] Settled ${totalCostCents}¢ for session ${session.id}: ${txHash}`);
+      console.log(`[Session Close] Settled for ${tokenData.walletAddress}: ${txHash}`);
+    } else {
+      console.log(`[Session Close] Zero-cost close for ${tokenData.walletAddress}`);
     }
 
-    // Mark session closed (discards deposit auth)
-    sessionStore.closeSession(sessionToken);
-
-    // Build receipt
-    const breakdown = buildBreakdown(session);
-    const durationSeconds = Math.round((Date.now() - session.createdAt) / 1000);
-
-    return Response.json({
-      receipt: {
-        sessionId: session.id,
-        duration: durationSeconds,
-        queries: session.usage.length,
-        breakdown,
-        totalCostCents,
-        depositCents: session.depositAmount,
-        settlementTx,
-      },
-    });
+    return Response.json({ settlementTx });
   } catch (error) {
     console.error('[Session Close] Error:', error);
     return Response.json(
@@ -162,19 +111,4 @@ export async function POST(request: NextRequest) {
       { status: 500 },
     );
   }
-}
-
-function buildBreakdown(session: { usage: Array<{ model: string; cost: number }> }) {
-  const byModel = new Map<string, { count: number; totalCost: number }>();
-  for (const entry of session.usage) {
-    const existing = byModel.get(entry.model) ?? { count: 0, totalCost: 0 };
-    existing.count += 1;
-    existing.totalCost += entry.cost;
-    byModel.set(entry.model, existing);
-  }
-  return [...byModel.entries()].map(([model, stats]) => ({
-    model,
-    count: stats.count,
-    totalCost: stats.totalCost,
-  }));
 }
