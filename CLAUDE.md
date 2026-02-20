@@ -65,7 +65,7 @@ Next.js App (this repo)
 
 **Pay-per-request**: User signs x402 payment ($0.01) on every message. Uses `@x402/fetch` client wrapper.
 
-**Bar Tab (session)**: User signs a deposit auth once, chats freely, settles at end. Session tokens are stateless HMAC-signed (no server-side state needed — works across Vercel serverless instances). Client tracks usage locally.
+**Bar Tab (session)**: User signs a deposit auth once, chats freely, settles at end. Session tokens are stateless HMAC-signed (no server-side state needed — works across Vercel serverless instances). Client tracks usage locally. Sessions persist to localStorage (keyed by wallet address) so users can resume/settle after page refresh or accidental close (within 1-hour token TTL).
 
 ### Request Flow
 1. User sends message → Chat UI
@@ -101,7 +101,8 @@ Next.js App (this repo)
 - `lib/blockrun-client.ts` - BlockRun.ai x402 client for DeepSeek R1 escalation (~$0.001/query)
 - `lib/daydreams-client.ts` - Daydreams Router client (not deployed yet, kept for future)
 - `lib/router.ts` - Rule-based complexity classification + keyword escalation routing
-- `lib/session-token.ts` - Stateless HMAC-signed session tokens (works across Vercel serverless instances)
+- `lib/session-token.ts` - Stateless HMAC-signed session tokens (works across Vercel serverless instances, 1-hour TTL)
+- `lib/session-storage.ts` - localStorage persistence for bar tab sessions (keyed by wallet address, auto-clears on expiry)
 - `lib/session-signing.ts` - Client-side EIP-3009 signing utilities for deposit/settlement
 - `lib/session-pricing.ts` - Pricing constants and USDC conversion utilities
 - `lib/session-store.ts` - Session types (DepositAuth, UsageEntry, Session) — kept for type exports
@@ -114,11 +115,11 @@ Next.js App (this repo)
 - `components/chat/chat-interface.tsx` - Chat UI with dual payment modes (per-request + bar tab)
 - `components/chat/payment-mode-selector.tsx` - Payment mode chooser (per-request vs open a tab)
 - `components/chat/session-bar.tsx` - Active session status bar (query count, cost, progress)
-- `components/chat/session-receipt.tsx` - Settlement receipt modal
-- `components/chat/message-list.tsx` - Message display with avatars, model badges, and cost
+- `components/chat/session-receipt.tsx` - Settlement receipt modal with BaseScan tx link
+- `components/chat/message-list.tsx` - Message display with avatars, model badges, cost, and scroll-to-bottom button
 - `components/chat/message-content.tsx` - Markdown + LaTeX rendering and think block parsing
 - `components/chat/think-block.tsx` - Collapsible reasoning block for DeepSeek R1
-- `components/chat/message-input.tsx` - Auto-expanding textarea with gradient send button
+- `components/chat/message-input.tsx` - Auto-expanding textarea with gradient send button + stop button during streaming
 
 ## Escalation Routing
 
@@ -177,8 +178,7 @@ CDP_API_KEY_SECRET=...                       # Coinbase Developer Platform API k
 - **Daydreams as alternative**: If Daydreams fixes their x402 ($0.01/query), could add as additional provider
 
 ### Remaining Work
-See [tinybrain-updated-project-plan.md](tinybrain-updated-project-plan.md) for full plan details. Completed: Phases 1-5 + most of Phase 6. Remaining:
-- End-to-end test bar tab settlement (receipt → pay → tx hash)
+See [tinybrain-updated-project-plan.md](tinybrain-updated-project-plan.md) for full plan details. Completed: Phases 1-6 (all items). Remaining:
 - Rename GitHub repo from `nanobrain` to `tinybrain` and make public
 
 ---
