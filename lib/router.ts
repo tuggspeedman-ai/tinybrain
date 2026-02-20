@@ -20,6 +20,10 @@ export function shouldEscalateByKeyword(query: string): boolean {
 // Detects queries that a 561M-param model will likely hallucinate on.
 // Runs before TinyChat to avoid wasting a round-trip.
 
+// Self-referential bypass: questions TinyChat knows from SFT training.
+// These should ALWAYS go to TinyChat, even if they match complexity patterns.
+const SELF_REFERENTIAL_PATTERN = /\b(tinychat|tinybrain|tiny chat|tiny brain|jonathan avni|avni|your (name|creator|parameters?|model|training|architecture|size|weights?)|who (made|built|created|trained) you|about yourself|tell me about you|what are you|who are you|how many parameters|how big are you)\b/i;
+
 // Math: equations, arithmetic operators between numbers, math keywords
 const MATH_PATTERN = /\d+\s*[×x*\/÷+\-^%]\s*\d+|\b(calculate|compute|solve|equation|integral|derivative|factorial|sqrt|logarithm|algebra|geometry|trigonometry|probability|statistics)\b/i;
 
@@ -42,6 +46,8 @@ const TRANSLATION_PATTERN = /\b(translate|translation|in (spanish|french|german|
 const LONG_QUERY_THRESHOLD = 200;
 
 export function shouldEscalateByComplexity(query: string): boolean {
+  // Self-referential queries stay on TinyChat (it knows about itself from SFT)
+  if (SELF_REFERENTIAL_PATTERN.test(query)) return false;
   if (MATH_PATTERN.test(query)) return true;
   if (CODE_PATTERN.test(query)) return true;
   if (FACTUAL_PATTERN.test(query)) return true;
