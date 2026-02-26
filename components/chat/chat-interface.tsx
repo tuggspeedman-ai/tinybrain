@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useSwitchChain } from 'wagmi';
 import { createWalletClient, custom } from 'viem';
 import { base } from 'viem/chains';
 import { x402Client, wrapFetchWithPayment } from '@x402/fetch';
@@ -33,6 +33,7 @@ export function ChatInterface() {
   const [paymentStatus, setPaymentStatus] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const { isConnected, address } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
 
   // Payment mode state
   const [paymentMode, setPaymentMode] = useState<PaymentMode>('select');
@@ -140,6 +141,9 @@ export function ChatInterface() {
     setIsOpeningTab(true);
 
     try {
+      // Ensure wallet is on Base before signing
+      await switchChainAsync({ chainId: base.id });
+
       // Build and sign the deposit authorization
       const authorization = buildAuthorization(address as `0x${string}`, depositCents);
       const signature = await signAuthorization(walletClientRef.current, authorization);
@@ -223,6 +227,9 @@ export function ChatInterface() {
     setIsPaying(true);
 
     try {
+      // Ensure wallet is on Base before signing
+      await switchChainAsync({ chainId: base.id });
+
       // Use receiptData.totalCostCents (computed from messages, always reliable)
       const totalCents = receiptData.totalCostCents;
       const isZeroCost = totalCents === 0;
